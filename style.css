@@ -1,4 +1,4 @@
-:root { --bg:#0e1624; --panel:#111a2b; --text:#e9eef7; --muted:#9ab; --accent:#2aa8ff; --line:#1f2b44; }
+:root { --bg:#0e1624; --panel:#111a2b; --text:#e9eef7; --muted:#9ab; --accent:#2aa8ff; --line:#1f2b44; --red:#e44545; }
 *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font:14px/1.4 system-ui,Segoe UI,Arial}
 .app{display:grid;grid-template-columns:320px 1fr;min-height:100vh}
 .side{background:var(--panel);padding:16px;border-right:1px solid var(--line)}
@@ -22,17 +22,23 @@ h3,h4{margin:8px 0 6px}
 .zone-title{color:var(--muted);margin-bottom:6px}
 .hand{display:flex;gap:10px;flex-wrap:wrap;min-height:90px}
 .stack{display:flex;gap:16px;min-height:120px;align-items:flex-start;flex-wrap:wrap}
-.pair{display:flex;gap:10px}
+.pair{display:flex;gap:10px;padding:6px;border-radius:10px}
+.pair.clickable{cursor:pointer;border:1px dashed transparent}
+.pair.clickable.selected{border-color:var(--accent);background:rgba(42,168,255,.08)}
 
-.card{width:64px;height:88px;border-radius:10px;background:#fff;color:#000;position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;box-shadow:0 4px 16px rgba(0,0,0,.3)}
+.card{width:64px;height:88px;border-radius:10px;background:#fff;color:#000;position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;box-shadow:0 4px 16px rgba(0,0,0,.3);transition:.15s}
 .card.trump{outline:3px solid #2aa8ff}
 .card.back{background:linear-gradient(135deg,#2a3a66,#16203a);color:#cfe3ff}
 .card .corner{position:absolute;font-size:12px}
 .card .corner.tl{top:6px;left:6px}
 .card .corner.br{bottom:6px;right:6px;transform:rotate(180deg)}
 .card .rank{font-size:20px;font-weight:700}
-.card .suit{font-size:16px;opacity:.8}
+.card .suit{font-size:16px;opacity:.9}
+.card .red{color:var(--red)}
 .card.disabled{filter:grayscale(.7);opacity:.8}
+.card.clickable{cursor:pointer;transform:translateY(0)}
+.card.clickable:hover{transform:translateY(-4px)}
+.card.bad{box-shadow:0 0 0 3px #ff6b6b inset}
 
 .footer{display:flex;gap:10px;align-items:center;margin-top:16px}
 .chat{display:flex;gap:8px}
