@@ -20,22 +20,20 @@ const ABC = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 const rc = () => Array.from({ length: 4 }, () => ABC[Math.floor(Math.random() * ABC.length)]).join("");
 
 const RANKS = ["6","7","8","9","10","J","Q","K","A","2","3","4","5"];
+const rankVal = (r) => RANKS.indexOf(r);
 
 function createDeck(deckSize) {
   const suits = ["♠","♥","♦","♣"];
   const ranks36 = ["6","7","8","9","10","J","Q","K","A"];
   const deck = [];
   for (const s of suits) for (const r of ranks36) deck.push({ r, s });
-  if (deckSize === 52) {
-    for (const r of ["2","3","4","5"]) for (const s of suits) deck.push({ r, s });
-  }
+  if (deckSize === 52) for (const r of ["2","3","4","5"]) for (const s of suits) deck.push({ r, s });
   for (let i = deck.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [deck[i], deck[j]] = [deck[j], deck[i]];
   }
   return deck;
 }
-const rankVal = (r) => RANKS.indexOf(r);
 
 function cardBeats(a, b, trumpSuit) {
   if (!a || !b) return false;
@@ -51,6 +49,18 @@ function lowestTrumpIndex(hand, trumpSuit) {
       const v = rankVal(c.r);
       if (v < best) { best = v; idx = i; }
     }
+  });
+  return idx;
+}
+
+function lowestCard(hand, trumpSuit, allowedRanks = null) {
+  let best = null, idx = -1;
+  const isAllowed = (c) => !allowedRanks || allowedRanks.has(c.r);
+  // priekšroka ne-trump kārtīm ar zemāko rangu
+  hand.forEach((c, i) => {
+    if (!isAllowed(c)) return;
+    const key = (c.s === trumpSuit ? 100 : 0) + rankVal(c.r);
+    if (idx === -1 || key < best) { best = key; idx = i; }
   });
   return idx;
 }
@@ -73,10 +83,18 @@ function makeRoom(deckSize) {
   return room;
 }
 
+function getPlayer(room, id) {
+  return room.players.find(p => p.id === id);
+}
+function getOtherId(room, pid) {
+  const p = room.players.find(x => x.id !== pid);
+  return p ? p.id : null;
+}
+
 function dealUpTo6(room) {
   const order = [room.attacker, room.defender];
   for (const pid of order) {
-    const p = room.players.find(x => x.id === pid);
+    const p = getPlayer(room, pid);
     if (!p) continue;
     while (p.hand.length < 6 && room.deck.length) p.hand.push(room.deck.pop());
   }
@@ -89,7 +107,6 @@ function allowedAttackRanks(room) {
   return ranks;
 }
 
-// >>> PERSONALIZĒTA STĀVOKĻA SŪTĪŠANA (katram – ar viņa paša roku)
 function emitState(room, revealAll = false) {
   const build = (viewerId) => ({
     phase: room.phase,
@@ -110,6 +127,110 @@ function emitState(room, revealAll = false) {
   });
 }
 
+// ---------- Spēles pārejas ----------
+function endAttackTransition(room) {
+  room.table = [];
+  dealUpTo6(room);
+  const oldAtk = room.attacker;
+  room.attacker = room.defender;
+  room.defender = oldAtk;
+  room.phase = "attack";
+  emitState(room);
+  maybeBotMove(room);
+}
+
+function takeTransition(room) {
+  const def = getPlayer(room, room.defender);
+  room.table.forEach(pair => { def.hand.push(pair.atk); if (pair.def) def.hand.push(pair.def); });
+  room.table = [];
+  dealUpTo6(room);
+  room.phase = "attack";
+  emitState(room);
+  maybeBotMove(room);
+}
+
+// ---------- BOT loģika ----------
+function isBotId(id){ return typeof id === "string" && id.startsWith("bot:"); }
+
+function botAttack(room) {
+  const atk = getPlayer(room, room.attacker);
+  const def = getPlayer(room, room.defender);
+  if (!atk || !def) return;
+
+  let added = false;
+  const limit = def.hand.length;
+
+  const addOnce = () => {
+    if (room.table.length >= limit) return false;
+    const ranks = room.table.length ? allowedAttackRanks(room) : null;
+    const i = lowestCard(atk.hand, room.trump.s, ranks);
+    if (i === -1) return false;
+    const card = atk.hand.splice(i,1)[0];
+    room.table.push({ atk: card, def: null });
+    added = true;
+    return true;
+  };
+
+  if (!room.table.length) addOnce();
+  // mēģinām pievienot līdz aizstāvis var nosist un līdz limitam
+  while (addOnce()) { /* turpinām */ }
+
+  emitState(room);
+
+  // ja uzbrucējs (BOT) redz, ka viss nosists, noslēdz metienu
+  if (room.table.length && room.table.every(p => p.def)) {
+    endAttackTransition(room);
+  }
+}
+
+function botDefend(room) {
+  const def = getPlayer(room, room.defender);
+  if (!def) return;
+
+  // aizstāvi katru neatbildēto metienu ar vislētāko uzvarošo kārti
+  for (let idx = 0; idx < room.table.length; idx++) {
+    const pair = room.table[idx];
+    if (pair.def) continue;
+
+    let bestI = -1, bestKey = 999;
+    def.hand.forEach((c, i) => {
+      if (cardBeats(c, pair.atk, room.trump.s)) {
+        const key = (c.s === room.trump.s ? 100 : 0) + rankVal(c.r);
+        if (key < bestKey) { bestKey = key; bestI = i; }
+      }
+    });
+
+    if (bestI === -1) {
+      // nevar nosist => paņem
+      takeTransition(room);
+      return;
+    }
+    const card = def.hand.splice(bestI,1)[0];
+    pair.def = card;
+  }
+
+  emitState(room);
+
+  // ja viss nosists – pabeidz metienu
+  if (room.table.length && room.table.every(p => p.def)) {
+    endAttackTransition(room);
+  } else {
+    // ja vēl ir brīvas vietas un uzbrucējs var iemest – dod pretuzbrukumu tikai tad, kad kārta nomainīsies
+    // (cilvēks lemj, vai mest vēl; BOT neko nedara šeit)
+  }
+}
+
+function maybeBotMove(room) {
+  if (room.phase !== "attack") return;
+  // neliels aizkaves “tick”, lai UI paspēj atjaunoties
+  setTimeout(() => {
+    if (room.phase !== "attack") return;
+    if (isBotId(room.attacker)) botAttack(room);
+    else if (isBotId(room.defender)) botDefend(room);
+  }, 250);
+}
+
+// ---------- Socket IO ----------
 io.on("connection", (sock) => {
   sock.on("room.create", ({ nick, deckSize }, ack) => {
     const r = makeRoom(deckSize);
@@ -156,24 +277,24 @@ io.on("connection", (sock) => {
     else if (i1 === -1) r.attacker = p2.id;
     else if (i2 === -1) r.attacker = p1.id;
     else r.attacker = (i1 < i2) ? p1.id : p2.id;
-    r.defender = r.players.find(p => p.id !== r.attacker).id;
+    r.defender = getOtherId(r, r.attacker);
 
     r.phase = "attack";
     r.table = [];
     emitState(r);
     ack?.({ ok:true });
+    maybeBotMove(r);
   });
 
   sock.on("play.attack", ({ room, cardIndex }, ack) => {
     const r = rooms.get((room || "").toUpperCase());
     if (!r || r.phase !== "attack" || sock.id !== r.attacker) { ack?.({ok:false}); return; }
-    const atk = r.players.find(p=>p.id===r.attacker);
-    const def = r.players.find(p=>p.id===r.defender);
+    const atk = getPlayer(r, r.attacker);
+    const def = getPlayer(r, r.defender);
     if (!atk || !def) { ack?.({ok:false}); return; }
 
     const limit = def.hand.length;
-    const onTable = r.table.length;
-    if (onTable >= limit) { ack?.({ok:false}); return; }
+    if (r.table.length >= limit) { ack?.({ok:false}); return; }
 
     const card = atk.hand[cardIndex];
     if (!card) { ack?.({ok:false}); return; }
@@ -187,12 +308,13 @@ io.on("connection", (sock) => {
     r.table.push({ atk: card, def: null });
     emitState(r);
     ack?.({ ok:true });
+    maybeBotMove(r);
   });
 
   sock.on("play.defend", ({ room, attackIndex, cardIndex }, ack) => {
     const r = rooms.get((room || "").toUpperCase());
     if (!r || r.phase !== "attack" || sock.id !== r.defender) { ack?.({ok:false}); return; }
-    const def = r.players.find(p=>p.id===r.defender);
+    const def = getPlayer(r, r.defender);
     if (!def) { ack?.({ok:false}); return; }
     const pair = r.table[attackIndex];
     if (!pair || pair.def) { ack?.({ok:false}); return; }
@@ -204,18 +326,13 @@ io.on("connection", (sock) => {
     pair.def = card;
     emitState(r);
     ack?.({ ok:true });
+    maybeBotMove(r);
   });
 
   sock.on("game.take", ({ room }, ack) => {
     const r = rooms.get((room || "").toUpperCase());
     if (!r || sock.id !== r.defender) { ack?.({ok:false}); return; }
-    const def = r.players.find(p=>p.id===r.defender);
-    if (!def) { ack?.({ok:false}); return; }
-    r.table.forEach(pair => { def.hand.push(pair.atk); if (pair.def) def.hand.push(pair.def); });
-    r.table = [];
-    dealUpTo6(r);
-    r.phase = "attack";
-    emitState(r);
+    takeTransition(r);
     ack?.({ ok:true });
   });
 
@@ -223,21 +340,13 @@ io.on("connection", (sock) => {
     const r = rooms.get((room || "").toUpperCase());
     if (!r || sock.id !== r.attacker) { ack?.({ok:false}); return; }
     if (r.table.some(p=>!p.def)) { ack?.({ok:false}); return; }
-
-    r.table = [];
-    dealUpTo6(r);
-    const oldAtk = r.attacker;
-    r.attacker = r.defender;
-    r.defender = oldAtk;
-    r.phase = "attack";
-    emitState(r);
+    endAttackTransition(r);
     ack?.({ ok:true });
   });
 
   sock.on("game.debugReveal", ({ room }) => {
     const r = rooms.get((room || "").toUpperCase());
     if (!r) return;
-    // atklātais režīms: parādi visiem pilnu info
     r.players.forEach(p => io.to(p.id).emit("game.state", {
       phase: r.phase, stock: r.stock, trump: r.trump, attacker: r.attacker, defender: r.defender,
       table: r.table, players: r.players.map(x=>({id:x.id,nick:x.nick,handCount:x.hand.length,hand:x.hand}))
@@ -247,7 +356,7 @@ io.on("connection", (sock) => {
   sock.on("chat", ({ room, msg }) => {
     const r = rooms.get((room || "").toUpperCase());
     if (!r) return;
-    const p = r.players.find(x => x.id === sock.id);
+    const p = getPlayer(r, sock.id);
     io.to(r.code).emit("chat", { nick: p ? p.nick : "?", msg: String(msg).slice(0,300) });
   });
 
