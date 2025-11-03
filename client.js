@@ -1,160 +1,174 @@
-const SERVER_URL = "https://duraks-online.onrender.com";
-const DEBUG = new URLSearchParams(location.search).has("debug");
+// ========= Klienta stāvoklis =========
+let currentRoom = null;
+let meId = null;
+let state = null;
 
-const $ = (id)=>document.getElementById(id);
-const logEl = $("log");
-function log(m){const d=document.createElement("div");d.innerHTML=m;logEl.appendChild(d);logEl.scrollTop=logEl.scrollHeight}
+const els = {
+  nick: document.getElementById("nick"),
+  deckSize: document.getElementById("deckSize"),
+  roomInput: document.getElementById("room"),
+  btnCreate: document.getElementById("btnCreate"),
+  btnJoin: document.getElementById("btnJoin"),
+  btnStart: document.getElementById("btnStart"),
+  btnSolo: document.getElementById("btnSolo"),
+  btnEnd: document.getElementById("btnEnd"),
+  btnTake: document.getElementById("btnTake"),
+  roomLabel: document.getElementById("roomLabel"),
+  trumpLabel: document.getElementById("trumpLabel"),
+  stockCount: document.getElementById("stockCount"),
+  phase: document.getElementById("phase"),
+  turnLabel: document.getElementById("turnLabel"),
+  log: document.getElementById("log"),
+  chatMsg: document.getElementById("chatMsg"),
+  chatSend: document.getElementById("chatSend"),
+  stack: document.getElementById("stack"),
+  oppName: document.getElementById("oppName"),
+  oppCount: document.getElementById("oppCount"),
+  oppHand: document.getElementById("oppHand"),
+  meCount: document.getElementById("meCount"),
+  meHand: document.getElementById("meHand"),
+};
 
-let socket, myId=null, roomCode=null, state=null;
-let defendTarget = -1;
+function addLog(msg){ const d=document.createElement("div"); d.textContent=msg; els.log.appendChild(d); els.log.scrollTop = els.log.scrollHeight; }
 
-function ensureSocket(){
-  if (socket && socket.connected) return socket;
-  socket = io(SERVER_URL, { path:"/socket.io", transports:["websocket"] });
-
-  socket.on("connect",()=>{ myId=socket.id; log("Savienots ar serveri."); });
-  socket.on("disconnect",()=> log("Savienojums zudis."));
-  socket.on("error.msg",(m)=> log(`<span style="color:#ff8">${m}</span>`));
-
-  socket.on("room.created",({room})=>{ roomCode=room; $("roomLabel").textContent=room; log(`<b>Istaba izveidota: ${room}</b>`); });
-  socket.on("room.joined",({room,players})=>{
-    roomCode=room; $("roomLabel").textContent=room;
-    const other = players.find(p=>p.id!==myId); $("oppName").textContent = other?other.nick:"—";
-    log(`<b>Pievienojies istabai: ${room}</b>`);
+// atlases stāvoklis
+let selected = { from:null, index:null };
+const clearSelection = () => { selected={from:null,index:null}; renderHandSelection(); };
+function renderHandSelection(){
+  [...els.meHand.querySelectorAll(".card")].forEach((el,i)=>{
+    el.classList.toggle("selected", selected.from==="hand" && selected.index===i);
   });
-  socket.on("room.update",({players})=>{
-    const other = players.find(p=>p.id!==myId);
-    if (other) $("oppName").textContent = other.nick;
-    $("btnStart").disabled = players.length<2;
-  });
-
-  socket.on("chat",({nick,msg})=> log(`<i>${nick}:</i> ${msg}`));
-  socket.on("game.state",(s)=>{ state=s; render(); });
-
-  return socket;
 }
 
-function getNick(){ return ($("nick").value||"Bugats").trim(); }
-function getDeckSize(){ return parseInt($("deckSize").value,10)||36; }
-
-$("btnCreate").onclick = ()=>{
-  const s=ensureSocket(); log("Sūtu pieprasījumu: izveidot istabu…");
-  s.emit("room.create",{nick:getNick(),deckSize:getDeckSize()},(res)=>{
-    if(!res||!res.ok) return log('<span style="color:#ff8">Neizdevās izveidot istabu.</span>');
-    roomCode=res.room; $("roomLabel").textContent=roomCode;
-  });
-};
-$("btnJoin").onclick = ()=>{
-  const s=ensureSocket();
-  const room = ($("room").value||"").trim().toUpperCase();
-  if(!room) return log("Ievadi istabas kodu.");
-  log(`Sūtu pieprasījumu: pievienoties ${room}…`);
-  s.emit("room.join",{nick:getNick(),room},(res)=>{
-    if(!res||!res.ok) return log('<span style="color:#ff8">Nav istabas vai pilna.</span>');
-    roomCode=res.room; $("roomLabel").textContent=roomCode;
-  });
-};
-
-$("btnStart").onclick = ()=>{
-  if(!roomCode) return;
-  ensureSocket().emit("game.start",{room:roomCode},()=>{
-    if (DEBUG) ensureSocket().emit("game.debugReveal", { room: roomCode });
-  });
-};
-$("btnSolo").onclick = ()=>{
-  if(!roomCode) return log("Vispirms izveido istabu.");
-  ensureSocket().emit("room.solo",{room:roomCode},(res)=>{
-    if(!res||!res.ok) return log('<span style="color:#ff8">Neizdevās pievienot BOT.</span>');
-    log("<b>Solo režīms: BOT pievienots.</b>");
-  });
-};
-$("btnTake").onclick  = ()=>{ if(!roomCode) return; ensureSocket().emit("game.take",{room:roomCode}); defendTarget=-1; };
-$("btnEnd").onclick   = ()=>{ if(!roomCode) return; ensureSocket().emit("game.endAttack",{room:roomCode}); defendTarget=-1; };
-
-$("chatSend").onclick = ()=>{
-  if(!roomCode) return; const msg=$("chatMsg").value.trim(); if(!msg) return;
-  $("chatMsg").value=""; ensureSocket().emit("chat",{room:roomCode,msg});
-};
+function suitColor(s){ return (s==="♥"||s==="♦") ? "red" : "black"; }
+function cardHTML(c, extra=""){ 
+  return `<div class="card ${extra}">
+    <div class="rank ${suitColor(c.s)}">${c.r}</div>
+    <div class="suit ${suitColor(c.s)}">${c.s}</div>
+    <div class="corner ${suitColor(c.s)}">${c.r}${c.s}</div>
+  </div>`;
+}
+function backHTML(){ return `<div class="card"><div class="rank black">🂠</div></div>`; }
 
 function render(){
-  if(!state) return;
-  $("phase").textContent = state.phase || "—";
-  $("stockCount").textContent = state.stock ?? 0;
-  $("trumpLabel").textContent = state.trump ? state.trump.s : "—";
-  $("turnLabel").textContent =
-    state.attacker===myId ? "Gājiens: Tu uzbrūc" :
-    state.defender===myId ? "Gājiens: Tu aizstāvi" : "Gājiens: —";
+  if(!state){ return; }
+  els.roomLabel.textContent = currentRoom || "—";
+  els.stockCount.textContent = state.stock ?? "—";
+  els.phase.textContent = state.phase ?? "—";
+  const trump = state.trump ? `${state.trump.r}${state.trump.s}` : "—";
+  els.trumpLabel.textContent = trump;
 
-  const me = state.players.find(p=>p.id===myId) || state.players[0];
-  const opp = state.players.find(p=>p.id!==myId) || state.players[1];
+  // kas es esmu?
+  const me = state.players.find(p=>p.id===meId);
+  const opp = state.players.find(p=>p.id!==meId);
 
-  $("meCount").textContent  = me ? (me.hand?.length ?? me.handCount ?? 0) : 0;
-  $("oppCount").textContent = opp ? (opp.handCount ?? opp.hand?.length ?? 0) : 0;
+  const myRole = (state.attacker===meId) ? "attacker" : (state.defender===meId ? "defender" : "watch");
+  els.turnLabel.textContent = (myRole==="attacker") ? "Gājiens: Tu uzbrūc" : (myRole==="defender" ? "Gājiens: Tu aizstāvi" : "Skatītājs");
+  // pretinieks
+  els.oppName.textContent = opp? (opp.nick||"—") : "—";
+  els.oppCount.textContent = opp? opp.handCount : 0;
+  els.oppHand.innerHTML = opp? Array.from({length:opp.handCount}).map(backHTML).join("") : "";
 
-  renderHand("meHand", me?.hand || [], true, state.trump?.s);
-  renderHand("oppHand", (DEBUG && opp?.hand) ? opp.hand : Array(opp ? (opp.handCount ?? 0) : 0).fill({hidden:true}), false, state.trump?.s);
+  // mana roka
+  els.meCount.textContent = me? me.hand.length : 0;
+  els.meHand.innerHTML = me? me.hand.map(cardHTML).join("") : "";
 
-  const st = $("stack"); st.innerHTML="";
-  (state.table||[]).forEach((pair, idx)=>{
-    const w=document.createElement("div"); w.className="pair";
-    const a=makeCard(pair.atk, state.trump?.s); w.appendChild(a);
-    if(pair.def){ const d=makeCard(pair.def, state.trump?.s); d.classList.add("def"); w.appendChild(d); }
-    else {
-      if (state.defender===myId) {
-        w.classList.add("clickable");
-        if (idx===defendTarget) w.classList.add("selected");
-        w.onclick=()=>{ defendTarget = (defendTarget===idx ? -1 : idx); render(); };
-      }
-    }
-    st.appendChild(w);
+  // metiens
+  els.stack.innerHTML = state.table.map((pair,idx)=>{
+    const atk = pair.atk ? cardHTML(pair.atk) : "";
+    const def = pair.def ? cardHTML(pair.def,"def") : "";
+    return `<div class="pair-slot" data-idx="${idx}">${atk}${def}</div>`;
+  }).join("");
+
+  // klikšķi uz rokām: tikai atlase
+  [...els.meHand.querySelectorAll(".card")].forEach((el,i)=>{
+    el.addEventListener("click", ()=>{
+      if(selected.from==="hand" && selected.index===i) clearSelection();
+      else { selected={from:"hand",index:i}; renderHandSelection(); }
+    });
   });
 
-  $("btnTake").disabled = !(state.phase==="attack" && state.defender===myId && (state.table||[]).length>0);
-  $("btnEnd").disabled  = !(state.phase==="attack" && state.attacker===myId && (state.table||[]).length>0 && state.table.every(p=>p.def));
-}
+  // uzbrukt: klikšķis uz stack (tukšā vietā) vai uz pāra (pievienot vienādu rangu)
+  els.stack.addEventListener("click", (ev)=>{
+    const slot = ev.target.closest(".pair-slot");
+    if(selected.from!=="hand") return;
+    if(myRole!=="attacker") return;
 
-function renderHand(id, hand, isMe, trumpSuit){
-  const el=$(id); el.innerHTML="";
-  hand.forEach((c, i)=>{
-    const k = c.hidden ? makeBack() : makeCard(c, trumpSuit);
-    if (c.hidden) k.classList.add("disabled");
-    if (isMe && !c.hidden && state.phase==="attack" && state.attacker===myId) {
-      k.classList.add("clickable");
-      k.onclick = ()=> {
-        ensureSocket().emit("play.attack",{room:roomCode,cardIndex:i},res=>{
-          if(!res||!res.ok) flash(k);
-        });
-      };
-    }
-    if (isMe && !c.hidden && state.phase==="attack" && state.defender===myId) {
-      k.classList.add("clickable");
-      k.onclick = ()=> {
-        if (defendTarget<0) { flash(k); return; }
-        ensureSocket().emit("play.defend",{room:roomCode,attackIndex:defendTarget,cardIndex:i},res=>{
-          if(!res||!res.ok) flash(k); else defendTarget=-1;
-        });
-      };
-    }
-    el.appendChild(k);
+    // ja nav pāru, var mest jebkuru; ja ir - tikai atļautos rangus
+    // to pārbauda serveris; klients vienkārši sūta pieprasījumu
+    socket.emit("play.attack", { room: currentRoom, cardIndex: selected.index }, (res)=>{
+      if(res?.ok) clearSelection();
+    });
+  }, { once:true });
+
+  // aizsardzība: klikšķis uz konkrēta pāra
+  [...els.stack.querySelectorAll(".pair-slot")].forEach(slot=>{
+    slot.addEventListener("click",()=>{
+      if(selected.from!=="hand") return;
+      if(myRole!=="defender") return;
+      const idx = Number(slot.dataset.idx);
+      socket.emit("play.defend", { room: currentRoom, attackIndex: idx, cardIndex: selected.index }, (res)=>{
+        if(res?.ok) clearSelection();
+      });
+    });
   });
 }
 
-function flash(el){ el.classList.add("bad"); setTimeout(()=>el.classList.remove("bad"),250); }
+// ========= Socket notikumi =========
+socket.on("connect", ()=>{ meId = socket.id; });
+socket.on("room.created", ({room})=>{ currentRoom=room; els.roomInput.value=room; addLog(`Istaba izveidota: ${room}`); });
+socket.on("room.joined", ({room})=>{ currentRoom=room; addLog(`Pievienojies: ${room}`); });
+socket.on("room.update", ({players})=>{ addLog("Spēlētāji: "+players.map(p=>p.nick).join(", ")); });
+socket.on("game.state", (s)=>{ state=s; render(); });
+socket.on("log", (msg)=> addLog(msg));
+socket.on("error.msg",(m)=> addLog("☝ " + m));
+socket.on("chat",(m)=> addLog(`${m.nick}: ${m.msg}`));
 
-function makeBack(){
-  const e=document.createElement("div"); e.className="card back"; e.innerHTML="<span>🂠</span>"; return e;
-}
-function makeCard(c, trumpSuit){
-  const e=document.createElement("div"); e.className="card";
-  if(!c){ e.innerHTML="<span>—</span>"; return e; }
-  if(c.s===trumpSuit) e.classList.add("trump");
-  const red = (c.s==="♥"||c.s==="♦");
-  e.innerHTML = `
-    <span class="corner tl ${red?'red':''}">${c.r}${c.s}</span>
-    <span class="rank ${red?'red':''}">${c.r}</span>
-    <span class="suit ${red?'red':''}">${c.s}</span>
-    <span class="corner br ${red?'red':''}">${c.r}${c.s}</span>`;
-  return e;
-}
+// ========= UI pogas =========
+els.btnCreate.onclick = ()=>{
+  const nick = els.nick.value.trim() || "Spēlētājs";
+  const deckSize = Number(els.deckSize.value);
+  socket.emit("room.create", { nick, deckSize }, (res)=>{
+    if(!res?.ok) return addLog("Neizdevās izveidot.");
+    currentRoom = res.room; els.roomInput.value = res.room;
+  });
+};
 
-ensureSocket();
+els.btnJoin.onclick = ()=>{
+  const nick = els.nick.value.trim() || "Spēlētājs";
+  const room = (els.roomInput.value||"").trim().toUpperCase();
+  socket.emit("room.join", { nick, room }, (res)=>{
+    if(!res?.ok) return addLog("Nav istabas vai pilna.");
+    currentRoom = res.room;
+  });
+};
+
+els.btnSolo.onclick = ()=>{
+  const room = (els.roomInput.value||currentRoom||"").trim().toUpperCase();
+  if(!room) return addLog("Vispirms izveido istabu.");
+  socket.emit("room.solo", { room }, (res)=>{
+    if(!res?.ok && res?.error!=="") addLog("Solo režīms nav pieejams.");
+  });
+};
+
+els.btnStart.onclick = ()=>{
+  const room = (els.roomInput.value||currentRoom||"").trim().toUpperCase();
+  if(!room) return;
+  socket.emit("game.start", { room }, (r)=>{ if(!r?.ok) addLog("Sākt nevar."); });
+};
+
+els.btnEnd.onclick = ()=>{
+  const room = currentRoom; if(!room) return;
+  socket.emit("game.endAttack", { room }, (r)=>{ if(!r?.ok) addLog("Nevar beigt metienu."); });
+};
+
+els.btnTake.onclick = ()=>{
+  const room = currentRoom; if(!room) return;
+  socket.emit("game.take", { room }, (r)=>{ if(!r?.ok) addLog("Nevar paņemt."); });
+};
+
+els.chatSend.onclick = ()=>{
+  const msg = els.chatMsg.value.trim(); if(!msg) return;
+  socket.emit("chat", { room: currentRoom, msg });
+  els.chatMsg.value="";
+};
