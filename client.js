@@ -6,8 +6,6 @@ const logEl = $("log");
 function log(m){const d=document.createElement("div");d.innerHTML=m;logEl.appendChild(d);logEl.scrollTop=logEl.scrollHeight}
 
 let socket, myId=null, roomCode=null, state=null;
-
-// aizsardzības mērķa izvēle (uz kādu pāri sitīsim)
 let defendTarget = -1;
 
 function ensureSocket(){
@@ -78,7 +76,6 @@ $("chatSend").onclick = ()=>{
   $("chatMsg").value=""; ensureSocket().emit("chat",{room:roomCode,msg});
 };
 
-// ===== Render un UI =====
 function render(){
   if(!state) return;
   $("phase").textContent = state.phase || "—";
@@ -95,7 +92,7 @@ function render(){
   $("oppCount").textContent = opp ? (opp.handCount ?? opp.hand?.length ?? 0) : 0;
 
   renderHand("meHand", me?.hand || [], true, state.trump?.s);
-  renderHand("oppHand", DEBUG && opp?.hand ? opp.hand : Array(opp ? (opp.handCount ?? 0) : 0).fill({hidden:true}), false, state.trump?.s);
+  renderHand("oppHand", (DEBUG && opp?.hand) ? opp.hand : Array(opp ? (opp.handCount ?? 0) : 0).fill({hidden:true}), false, state.trump?.s);
 
   const st = $("stack"); st.innerHTML="";
   (state.table||[]).forEach((pair, idx)=>{
@@ -103,7 +100,6 @@ function render(){
     const a=makeCard(pair.atk, state.trump?.s); w.appendChild(a);
     if(pair.def){ const d=makeCard(pair.def, state.trump?.s); d.classList.add("def"); w.appendChild(d); }
     else {
-      // ja esmu aizstāvis – varu izvēlēties šo pāri kā mērķi
       if (state.defender===myId) {
         w.classList.add("clickable");
         if (idx===defendTarget) w.classList.add("selected");
