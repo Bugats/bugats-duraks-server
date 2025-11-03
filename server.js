@@ -18,7 +18,8 @@ app.get("/", (_req, res) => res.sendFile(path.join(__dirname, "index.html")));
 const rooms = new Map();
 const ABC = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 const rc = () => Array.from({ length: 4 }, () => ABC[Math.floor(Math.random() * ABC.length)]).join("");
-const RANKS = ["6","7","8","9","10","J","Q","K","A","2","3","4","5"]; // 52-deck extra at end for salīdzināšanai
+
+const RANKS = ["6","7","8","9","10","J","Q","K","A","2","3","4","5"];
 
 function createDeck(deckSize) {
   const suits = ["♠","♥","♦","♣"];
@@ -59,12 +60,12 @@ function makeRoom(deckSize) {
   const room = {
     code,
     deckSize: deckSize === 52 ? 52 : 36,
-    players: [], // {id,nick,hand:[]}
+    players: [],
     phase: "wait",
     deck: [],
-    trump: null,  // {r,s}
+    trump: null,
     stock: 0,
-    table: [],    // [{atk,def}]
+    table: [],
     attacker: null,
     defender: null,
   };
@@ -73,7 +74,6 @@ function makeRoom(deckSize) {
 }
 
 function dealUpTo6(room) {
-  // Uzbrucējs velk pirmais, tad aizstāvis
   const order = [room.attacker, room.defender];
   for (const pid of order) {
     const p = room.players.find(x => x.id === pid);
@@ -89,8 +89,9 @@ function allowedAttackRanks(room) {
   return ranks;
 }
 
-function emitState(room, revealAll=false) {
-  io.to(room.code).emit("game.state", {
+// >>> PERSONALIZĒTA STĀVOKĻA SŪTĪŠANA (katram – ar viņa paša roku)
+function emitState(room, revealAll = false) {
+  const build = (viewerId) => ({
     phase: room.phase,
     stock: room.stock,
     trump: room.trump,
@@ -101,8 +102,11 @@ function emitState(room, revealAll=false) {
       id: p.id,
       nick: p.nick,
       handCount: p.hand.length,
-      hand: revealAll ? p.hand : []
+      hand: (revealAll || p.id === viewerId) ? p.hand : []
     }))
+  });
+  room.players.forEach(p => {
+    io.to(p.id).emit("game.state", build(p.id));
   });
 }
 
@@ -127,7 +131,6 @@ io.on("connection", (sock) => {
     io.to(r.code).emit("room.update", { players: r.players.map(p=>({id:p.id,nick:p.nick})) });
   });
 
-  // Solo tests (BOT)
   sock.on("room.solo", ({ room }, ack) => {
     const r = rooms.get((room || "").toUpperCase());
     if (!r) return ack?.({ ok:false, error:"no-room" });
@@ -137,13 +140,11 @@ io.on("connection", (sock) => {
     ack?.({ ok:true });
   });
 
-  // Start
   sock.on("game.start", ({ room }, ack) => {
     const r = rooms.get((room || "").toUpperCase());
     if (!r || r.players.length < 2) { ack?.({ok:false}); return; }
     r.deck = createDeck(r.deckSize);
     r.trump = r.deck[0];
-    // trumpa kārts nolikta apakšā (klasiski) — pildīsim no gala
     r.deck.push(r.deck.shift());
     dealUpTo6(r);
 
@@ -163,7 +164,6 @@ io.on("connection", (sock) => {
     ack?.({ ok:true });
   });
 
-  // Attack play
   sock.on("play.attack", ({ room, cardIndex }, ack) => {
     const r = rooms.get((room || "").toUpperCase());
     if (!r || r.phase !== "attack" || sock.id !== r.attacker) { ack?.({ok:false}); return; }
@@ -171,7 +171,6 @@ io.on("connection", (sock) => {
     const def = r.players.find(p=>p.id===r.defender);
     if (!atk || !def) { ack?.({ok:false}); return; }
 
-    // limits
     const limit = def.hand.length;
     const onTable = r.table.length;
     if (onTable >= limit) { ack?.({ok:false}); return; }
@@ -179,20 +178,17 @@ io.on("connection", (sock) => {
     const card = atk.hand[cardIndex];
     if (!card) { ack?.({ok:false}); return; }
 
-    // ja nav pirmā kārts, drīkst mest tikai rangus, kas jau ir uz galda
     if (r.table.length > 0) {
       const allow = allowedAttackRanks(r);
       if (!allow.has(card.r)) { ack?.({ok:false}); return; }
     }
 
-    // izņem no rokas, ieliek galdā kā jaunu pāri
     atk.hand.splice(cardIndex,1);
     r.table.push({ atk: card, def: null });
     emitState(r);
     ack?.({ ok:true });
   });
 
-  // Defend play
   sock.on("play.defend", ({ room, attackIndex, cardIndex }, ack) => {
     const r = rooms.get((room || "").toUpperCase());
     if (!r || r.phase !== "attack" || sock.id !== r.defender) { ack?.({ok:false}); return; }
@@ -202,8 +198,6 @@ io.on("connection", (sock) => {
     if (!pair || pair.def) { ack?.({ok:false}); return; }
 
     const card = def.hand[cardIndex];
-    if (!card) { ack?.({ok:false}); return; }
-
     if (!cardBeats(card, pair.atk, r.trump.s)) { ack?.({ok:false}); return; }
 
     def.hand.splice(cardIndex,1);
@@ -212,7 +206,6 @@ io.on("connection", (sock) => {
     ack?.({ ok:true });
   });
 
-  // Defender takes
   sock.on("game.take", ({ room }, ack) => {
     const r = rooms.get((room || "").toUpperCase());
     if (!r || sock.id !== r.defender) { ack?.({ok:false}); return; }
@@ -220,23 +213,19 @@ io.on("connection", (sock) => {
     if (!def) { ack?.({ok:false}); return; }
     r.table.forEach(pair => { def.hand.push(pair.atk); if (pair.def) def.hand.push(pair.def); });
     r.table = [];
-    // pēc paņemšanas uzbrucējs paliek uzbrucējs
     dealUpTo6(r);
     r.phase = "attack";
     emitState(r);
     ack?.({ ok:true });
   });
 
-  // Attacker ends attack (only if all covered or tukšs)
   sock.on("game.endAttack", ({ room }, ack) => {
     const r = rooms.get((room || "").toUpperCase());
     if (!r || sock.id !== r.attacker) { ack?.({ok:false}); return; }
-    // drīkst beigt, ja visas uzbruktās kārtis ir nosegtas vai nav nevienas
     if (r.table.some(p=>!p.def)) { ack?.({ok:false}); return; }
 
     r.table = [];
     dealUpTo6(r);
-    // lomas mainās
     const oldAtk = r.attacker;
     r.attacker = r.defender;
     r.defender = oldAtk;
@@ -245,14 +234,16 @@ io.on("connection", (sock) => {
     ack?.({ ok:true });
   });
 
-  // Debug
   sock.on("game.debugReveal", ({ room }) => {
     const r = rooms.get((room || "").toUpperCase());
     if (!r) return;
-    emitState(r, true);
+    // atklātais režīms: parādi visiem pilnu info
+    r.players.forEach(p => io.to(p.id).emit("game.state", {
+      phase: r.phase, stock: r.stock, trump: r.trump, attacker: r.attacker, defender: r.defender,
+      table: r.table, players: r.players.map(x=>({id:x.id,nick:x.nick,handCount:x.hand.length,hand:x.hand}))
+    }));
   });
 
-  // Chat
   sock.on("chat", ({ room, msg }) => {
     const r = rooms.get((room || "").toUpperCase());
     if (!r) return;
@@ -260,7 +251,6 @@ io.on("connection", (sock) => {
     io.to(r.code).emit("chat", { nick: p ? p.nick : "?", msg: String(msg).slice(0,300) });
   });
 
-  // Disconnect
   sock.on("disconnect", () => {
     for (const [code, r] of rooms) {
       const i = r.players.findIndex(p=>p.id===sock.id);
