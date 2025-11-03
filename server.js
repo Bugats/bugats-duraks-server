@@ -42,7 +42,6 @@ function cardBeatsRoom(room,a,b){
   if(a.s===room.trump.s && b.s!==room.trump.s) return true;
   return false;
 }
-
 function allowedAttackRanks(room){
   const rs=new Set();
   room.table.forEach(p=>{ if(p.atk) rs.add(p.atk.r); if(p.def) rs.add(p.def.r); });
@@ -72,13 +71,13 @@ function dealUpTo6(room){
   room.stock=room.deck.length;
 }
 
-function emitState(room, revealAll=false){
+function emitState(room){
   const build = (viewerId)=>({
     phase:room.phase, stock:room.stock, trump:room.trump,
     attacker:room.attacker, defender:room.defender, table:room.table,
     players:room.players.map(p=>({
       id:p.id, nick:p.nick, handCount:p.hand.length,
-      hand:(revealAll||p.id===viewerId)? p.hand : []
+      hand:(p.id===viewerId)? p.hand : []
     }))
   });
   room.players.forEach(p=> io.to(p.id).emit("game.state", build(p.id)));
@@ -114,18 +113,16 @@ async function botAttack(room){
   room.table.push({ atk: card, def:null });
   io.to(room.code).emit("log", `BOT iemeta ${card.r}${card.s}`);
   emitState(room);
-
-  // ja viss nosists, pabeidz (to pārbaudīs botDefend pēc brīža)
 }
 
 async function botDefend(room){
   const def=getPlayer(room,room.defender);
   if(!def) return;
 
+  // mēģina nosist katru neatbildēto
   for(let idx=0; idx<room.table.length; idx++){
     const pair=room.table[idx];
     if(pair.def) continue;
-
     await wait(600);
 
     let bestI=-1, bestKey=999;
@@ -147,7 +144,6 @@ async function botDefend(room){
     emitState(room);
   }
 
-  // viss nosists?
   if(room.table.length && room.table.every(p=>p.def)){
     await wait(600);
     endAttackTransition(room);
@@ -160,7 +156,7 @@ function maybeBotMove(room){
     if(room.phase!=="attack") return;
     if(isBotId(room.attacker)) await botAttack(room);
     if(isBotId(room.defender)) await botDefend(room);
-  }, 300);
+  }, 250);
 }
 
 function endAttackTransition(room){
@@ -184,7 +180,7 @@ function takeTransition(room){
   maybeBotMove(room);
 }
 
-// ============ Socket =============
+// ====== Socket ======
 io.on("connection",(sock)=>{
   sock.on("room.create", ({nick,deckSize},ack)=>{
     const r=makeRoom(Number(deckSize)||36);
@@ -220,32 +216,26 @@ io.on("connection",(sock)=>{
     if(!r || r.players.length<2){ ack?.({ok:false}); return; }
     r.rankOrder = buildRankOrder(r.deckSize);
     r.deck = createDeck(r.deckSize);
-    r.trump = r.deck[0];
-    r.deck.push(r.deck.shift());
-    // izdala
-    // izvēlas sākuma uzbrucēju: zemākais trumpis rokā
+    r.trump = r.deck[0]; r.deck.push(r.deck.shift());
     dealUpTo6(r);
+
     const [p1,p2] = r.players;
-    const findLowestTrump = (p)=>{
-      let best=999, i=-1;
+    const lowestTrump = (p)=>{
+      let best=999,i=-1;
       p.hand.forEach((c,idx)=>{
-        if(c.s===r.trump.s){
-          const key=rankValFrom(r,c.r);
-          if(key<best){ best=key; i=idx; }
-        }
+        if(c.s===r.trump.s){ const key=rankValFrom(r,c.r); if(key<best){best=key;i=idx;} }
       });
       return i;
     };
-    const i1=findLowestTrump(p1), i2=findLowestTrump(p2);
+    const i1=lowestTrump(p1), i2=lowestTrump(p2);
     if(i1===-1 && i2===-1) r.attacker=p1.id;
     else if(i1===-1) r.attacker=p2.id;
     else if(i2===-1) r.attacker=p1.id;
     else r.attacker = (rankValFrom(r,p1.hand[i1].r) < rankValFrom(r,p2.hand[i2].r)) ? p1.id : p2.id;
+    r.defender = getOtherId(r,r.attacker);
 
-    r.defender = getOtherId(r, r.attacker);
     r.phase="attack"; r.table=[];
-    emitState(r);
-    ack?.({ok:true});
+    emitState(r); ack?.({ok:true});
     maybeBotMove(r);
   });
 
@@ -286,22 +276,27 @@ io.on("connection",(sock)=>{
     pair.def=card;
     emitState(r);
     ack?.({ok:true});
-    maybeBotMove(r);
+
+    // Ja viss nosists, var pabeigt metienu (vai spied "Beigt metienu")
+    if(r.table.length && r.table.every(p=>p.def)){
+      // Auto-beigas, ja uzbrucējs ir BOT (lai neturētu spēli)
+      if(isBotId(r.attacker)) endAttackTransition(r);
+    } else {
+      maybeBotMove(r);
+    }
   });
 
   sock.on("game.endAttack", ({room},ack)=>{
     const r=rooms.get((room||"").toUpperCase());
     if(!r || sock.id!==r.attacker){ ack?.({ok:false}); return; }
     if(r.table.some(p=>!p.def)){ ack?.({ok:false}); return; }
-    endAttackTransition(r);
-    ack?.({ok:true});
+    endAttackTransition(r); ack?.({ok:true});
   });
 
   sock.on("game.take", ({room},ack)=>{
     const r=rooms.get((room||"").toUpperCase());
     if(!r || sock.id!==r.defender){ ack?.({ok:false}); return; }
-    takeTransition(r);
-    ack?.({ok:true});
+    takeTransition(r); ack?.({ok:true});
   });
 
   sock.on("chat", ({room,msg})=>{
