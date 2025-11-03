@@ -19,7 +19,7 @@
     <div class="row">
       <select id="deckSize" class="input">
         <option value="36">36</option>
-        <option value="52">52</option>
+        <option value="52" selected>52</option>
       </select>
     </div>
 
@@ -56,11 +56,10 @@
       </div>
     </div>
 
-    <!-- Metienu laukums -->
     <div class="zone">
       <div class="zone-title">Metiens</div>
       <div id="stack" class="stack"></div>
-      <div class="hint">* Uzbrūkot: iezīmē kārti rokā, tad uzspied šeit vai uz konkrētā pāra. Aizstāvoties: iezīmē kārti un spied uz pāra, ko nosist.</div>
+      <div class="hint">* Uzbrūkot: iezīmē kārti rokā un klikšķini “Metiens” zonā. Aizstāvoties: iezīmē kārti un klikšķini uz pāra, ko nosist.</div>
     </div>
 
     <div class="zone">
@@ -79,13 +78,12 @@
       <button id="btnEnd" class="btn">Beigt metienu</button>
       <button id="btnTake" class="btn">Paņemt</button>
       <div style="flex:1"></div>
-      <div class="badge">v1.2.3</div>
+      <div class="badge">v1.2.4</div>
     </div>
   </main>
 </div>
 
 <script>
-  /* socket host */
   const socket = io("/", { path: "/socket.io", transports: ["websocket"] });
 </script>
 <script src="client.js"></script>
