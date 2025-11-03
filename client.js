@@ -39,7 +39,7 @@ $("btnJoin").onclick = ()=>{
   const room = ($("room").value || "").trim().toUpperCase();
   if (!room) return log("Ievadi istabas kodu.");
   log(`Sūtu pieprasījumu: pievienoties ${room}…`);
-  s.timeout(5000).emit("room.join", { nick: getNick(), room }, (res)=>{
+  s.emit("room.create", { nick: getNick(), deckSize: getDeckSize() }, (res)=>{
     if (!res || !res.ok) return log('<span style="color:#ff8">Nav istabas vai tā ir pilna.</span>');
     roomCode = res.room;
     $("roomLabel").textContent = roomCode;
