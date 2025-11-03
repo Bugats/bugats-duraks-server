@@ -1,6 +1,11 @@
 import express from "express";
 import { createServer } from "http";
 import { Server } from "socket.io";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 const httpServer = createServer(app);
@@ -10,74 +15,106 @@ const io = new Server(httpServer, {
 });
 
 const PORT = process.env.PORT || 3000;
+
+// ===== Rooms (vienkāršots “lobby” ar čatu) =====
 const rooms = new Map();
 
+function roomCode() {
+  const abc = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+  let s = "";
+  for (let i = 0; i < 4; i++) s += abc[Math.floor(Math.random() * abc.length)];
+  return s;
+}
+
 function makeRoom(deckSize) {
-  const code = Math.random().toString(36).substring(2, 6).toUpperCase();
-  const deck = createDeck(deckSize);
-  rooms.set(code, {
+  const code = roomCode();
+  const room = {
     code,
-    deck,
-    trump: deck[deck.length - 1],
-    players: [],
-    phase: "wait",
-    table: [],
-    stock: deck.length,
-  });
-  return rooms.get(code);
+    deckSize: deckSize === 52 ? 52 : 36,
+    players: [], // { id, nick }
+    createdAt: Date.now(),
+  };
+  rooms.set(code, room);
+  return room;
 }
 
-function createDeck(deckSize) {
-  const suits = ["♠", "♥", "♦", "♣"];
-  const ranks = ["6","7","8","9","10","J","Q","K","A"];
-  const full = [];
-  for (const s of suits) for (const r of ranks) full.push({ r, s });
-  return deckSize === 52 ? shuffle(full.concat(["2","3","4","5"].flatMap(r=>suits.map(s=>({r,s}))))) : shuffle(full);
-}
-
-function shuffle(a){ for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];} return a; }
-
-io.on("connection",(sock)=>{
-  console.log("Jauns savienojums:", sock.id);
-
+// ===== Socket.IO =====
+io.on("connection", (sock) => {
+  // Izveidot istabu
   sock.on("room.create", ({ nick, deckSize }, ack) => {
-    const r = makeRoom(deckSize === 52 ? 52 : 36);
-    r.players.push({ id: sock.id, nick: nick || "Spēlētājs", hand: [] });
+    try {
+      const r = makeRoom(deckSize);
+      r.players.push({ id: sock.id, nick: nick || "Spēlētājs" });
+      sock.join(r.code);
+
+      // droši paziņojumi
+      sock.emit("room.created", { room: r.code });
+      ack?.({ ok: true, room: r.code });
+
+      io.to(r.code).emit("room.update", {
+        players: r.players.map((p) => ({ id: p.id, nick: p.nick })),
+      });
+    } catch (e) {
+      ack?.({ ok: false, error: "create-failed" });
+      io.to(sock.id).emit("error.msg", "Neizdevās izveidot istabu.");
+    }
+  });
+
+  // Pievienoties istabai
+  sock.on("room.join", ({ nick, room }, ack) => {
+    const r = rooms.get((room || "").toUpperCase());
+    if (!r) {
+      ack?.({ ok: false, error: "no-room" });
+      io.to(sock.id).emit("error.msg", "Istaba neeksistē");
+      return;
+    }
+    if (r.players.length >= 2) {
+      ack?.({ ok: false, error: "full" });
+      io.to(sock.id).emit("error.msg", "Istaba pilna");
+      return;
+    }
+    r.players.push({ id: sock.id, nick: nick || "Spēlētājs" });
     sock.join(r.code);
-    sock.emit("room.created", { room: r.code });
-    if (typeof ack === "function") ack({ ok: true, room: r.code });
+
+    sock.emit("room.joined", {
+      room: r.code,
+      players: r.players.map((p) => ({ id: p.id, nick: p.nick })),
+    });
+    ack?.({ ok: true, room: r.code });
+
     io.to(r.code).emit("room.update", {
-      players: r.players.map(p => ({ id: p.id, nick: p.nick }))
+      players: r.players.map((p) => ({ id: p.id, nick: p.nick })),
     });
   });
 
-  sock.on("room.join", ({ nick, room }, ack) => {
-    const r = rooms.get(room);
-    if (!r) { io.to(sock.id).emit("error.msg","Istaba neeksistē"); return ack?.({ok:false}); }
-    if (r.players.length >= 2) { io.to(sock.id).emit("error.msg","Istaba pilna"); return ack?.({ok:false}); }
-    r.players.push({ id: sock.id, nick: nick || "Spēlētājs", hand: [] });
-    sock.join(room);
-    sock.emit("room.joined", { room, players: r.players.map(p=>({id:p.id,nick:p.nick})) });
-    ack?.({ ok:true, room });
-    io.to(room).emit("room.update", { players: r.players.map(p => ({ id:p.id, nick:p.nick })) });
-  });
-
+  // Čats
   sock.on("chat", ({ room, msg }) => {
-    const r = rooms.get(room);
+    const r = rooms.get((room || "").toUpperCase());
     if (!r) return;
-    const p = r.players.find(p => p.id === sock.id);
-    io.to(room).emit("chat", { nick: p ? p.nick : "?", msg });
+    const p = r.players.find((x) => x.id === sock.id);
+    io.to(r.code).emit("chat", { nick: p ? p.nick : "?", msg: String(msg).slice(0, 300) });
   });
 
-  sock.on("disconnect", ()=>{
-    for (const [code,r] of rooms.entries()){
-      const idx = r.players.findIndex(p=>p.id===sock.id);
-      if (idx>=0){ r.players.splice(idx,1); io.to(code).emit("room.update",{players:r.players}); }
-      if (r.players.length===0) rooms.delete(code);
+  // Atvienošanās
+  sock.on("disconnect", () => {
+    for (const [code, r] of rooms) {
+      const i = r.players.findIndex((p) => p.id === sock.id);
+      if (i > -1) {
+        r.players.splice(i, 1);
+        io.to(code).emit("room.update", {
+          players: r.players.map((p) => ({ id: p.id, nick: p.nick })),
+        });
+      }
+      // Tīrām tukšas istabas
+      if (r.players.length === 0) rooms.delete(code);
     }
   });
 });
 
-app.use(express.static("."));
-app.get("/", (_, res) => res.sendFile(process.cwd() + "/index.html"));
-httpServer.listen(PORT, () => console.log("Server running on port", PORT));
+// ===== Static files =====
+app.use(express.static(__dirname));
+app.get("/", (_req, res) => res.sendFile(path.join(__dirname, "index.html")));
+
+httpServer.listen(PORT, () => {
+  console.log("Duraks Online running on port", PORT);
+});
