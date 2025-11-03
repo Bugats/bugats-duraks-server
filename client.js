@@ -1,25 +1,29 @@
 const SERVER_URL = window.SERVER_URL || "https://duraks-online.onrender.com";
 
-// UI helpers
-const $ = id => document.getElementById(id);
+const $ = (id) => document.getElementById(id);
 const logEl = $("log");
 function log(m){const d=document.createElement("div");d.innerHTML=m;logEl.appendChild(d);logEl.scrollTop=logEl.scrollHeight}
 
-let socket=null, myId=null, roomCode=null, state=null;
+let socket, myId=null, roomCode=null, state=null;
 
-function connect(){
-  if(socket) return socket;
+function ensureSocket(){
+  if (socket && socket.connected) return socket;
   socket = io(SERVER_URL, { path: "/socket.io", transports: ["websocket"] });
 
-  socket.on("connect", ()=>{ myId = socket.id; log("Savienots ar serveri."); });
+  socket.on("connect", () => { myId = socket.id; log("Savienots ar serveri."); });
+  socket.on("disconnect", () => log("Savienojums zudis."));
+
+  socket.on("error.msg", (m)=> log(`<span style="color:#ff8">${m}</span>`));
 
   socket.on("room.created", ({room})=>{
-    roomCode = room; $("roomLabel").textContent = room;
-    log(`<b>Istaba izveidota: ${room}</b> — dod šo kodu otram spēlētājam`);
+    roomCode = room;
+    $("roomLabel").textContent = room;
+    log(`<b>Istaba izveidota: ${room}</b>`);
   });
 
   socket.on("room.joined", ({room,players})=>{
-    roomCode = room; $("roomLabel").textContent = room;
+    roomCode = room;
+    $("roomLabel").textContent = room;
     const other = players.find(p=>p.id!==myId);
     $("oppName").textContent = other ? other.nick : "—";
     log(`<b>Pievienojies istabai ${room}</b>`);
@@ -27,79 +31,84 @@ function connect(){
 
   socket.on("room.update", ({players})=>{
     const other = players.find(p=>p.id!==myId);
-    if(other) $("oppName").textContent = other.nick;
+    if (other) $("oppName").textContent = other.nick;
   });
 
-  socket.on("game.state", s=>{
-    state = s;
-    render();
-  });
+  socket.on("chat", ({nick,msg})=> log(`<i>${nick}:</i> ${msg}`));
 
-  socket.on("chat", ({nick,msg})=> log(`<i>${nick}:</i> ${msg}`) );
-  socket.on("error.msg", m=> log(`<span style="color:#ff8">${m}</span>`) );
+  socket.on("game.state", (s)=>{ state=s; render(); });
 
   return socket;
 }
 
-// Buttons
+function getNick(){ return ($("nick").value || "Bugats").trim(); }
+function getDeckSize(){ return parseInt($("deckSize").value,10) || 36; }
+
 $("btnCreate").onclick = ()=>{
-  const nick = $("nick").value.trim() || "Bugats";
-  const deckSize = +$("deckSize").value || 36;
-  connect().emit("room.create",{nick,deckSize});
+  const s = ensureSocket();
+  s.emit("room.create", { nick: getNick(), deckSize: getDeckSize() });
+  log("Sūtu pieprasījumu: izveidot istabu…");
 };
 
 $("btnJoin").onclick = ()=>{
-  const nick = $("nick").value.trim() || "Bugats";
-  const room = ($("room").value||"").toUpperCase();
-  if(!room) return log("Ievadi istabas kodu.");
-  connect().emit("room.join",{nick,room});
+  const s = ensureSocket();
+  const room = ($("room").value || "").trim().toUpperCase();
+  if (!room) return log("Ievadi istabas kodu.");
+  s.emit("room.join", { nick: getNick(), room });
+  log(`Sūtu pieprasījumu: pievienoties ${room}…`);
 };
 
 $("btnStart").onclick = ()=>{
-  if(!roomCode) return;
-  connect().emit("game.start",{room:roomCode});
+  if (!roomCode) return log("Nav istabas.");
+  ensureSocket().emit("game.start", { room: roomCode });
 };
 
 $("btnEnd").onclick = ()=>{
-  if(!roomCode) return;
-  connect().emit("game.endAttack",{room:roomCode});
+  if (!roomCode) return;
+  ensureSocket().emit("game.endAttack", { room: roomCode });
 };
 
 $("btnTake").onclick = ()=>{
-  if(!roomCode) return;
-  connect().emit("game.take",{room:roomCode});
+  if (!roomCode) return;
+  ensureSocket().emit("game.take", { room: roomCode });
 };
 
 $("btnPass").onclick = ()=>{
-  if(!roomCode) return;
-  connect().emit("game.pass",{room:roomCode});
+  if (!roomCode) return;
+  ensureSocket().emit("game.pass", { room: roomCode });
 };
 
 $("chatSend").onclick = ()=>{
+  if (!roomCode) return;
   const msg = $("chatMsg").value.trim();
-  if(!msg || !roomCode) return;
+  if (!msg) return;
   $("chatMsg").value = "";
-  connect().emit("chat",{room:roomCode,msg});
+  ensureSocket().emit("chat", { room: roomCode, msg });
 };
 
-// Render UI
+function onPlayCard(idx, defendIdx){
+  if (!roomCode) return;
+  ensureSocket().emit("game.play", { room: roomCode, idx, defendIdx });
+}
+
 function render(){
-  if(!state) return;
+  if (!state) return;
   $("trumpLabel").textContent = state.trump ? state.trump.s : "—";
-  $("stockCount").textContent = state.stock;
-  $("phase").textContent = state.phase;
+  $("stockCount").textContent = state.stock ?? 0;
+  $("phase").textContent = state.phase || "—";
 
   const me = state.players.find(p=>p.id===myId) || state.players[0];
   const opp = state.players.find(p=>p.id!==myId) || state.players[1];
 
   $("meCount").textContent  = me ? me.hand.length : 0;
-  $("oppCount").textContent = opp ? opp.handCount : 0;
+  $("oppCount").textContent = opp ? (opp.handCount ?? opp.hand?.length ?? 0) : 0;
+
   $("turnLabel").textContent =
     state.attacker===myId ? "Gājiens: Tu uzbrūc" :
     state.defender===myId ? "Gājiens: Tu aizstāvi" : "Gājiens: —";
 
   renderHand("meHand", me?me.hand:[], true, state.trump?state.trump.s:null);
-  renderHand("oppHand", Array(opp?opp.handCount:0).fill({hidden:true}), false, state.trump?state.trump.s:null);
+  renderHand("oppHand", Array(opp ? (opp.handCount ?? 0) : 0).fill({hidden:true}), false, state.trump?state.trump.s:null);
 
   const st = $("stack"); st.innerHTML = "";
   (state.table||[]).forEach((pair,i)=>{
@@ -143,10 +152,4 @@ function drop(el,fn){
   });
 }
 
-function onPlayCard(idx, defendIdx){
-  if(!roomCode) return;
-  connect().emit("game.play",{room:roomCode,idx,defendIdx});
-}
-
-// auto-connect
-connect();
+ensureSocket();
