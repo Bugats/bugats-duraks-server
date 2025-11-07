@@ -1,11 +1,13 @@
 {
-  "name": "bugats-duraks-server",
-  "version": "1.2.3",
-  "type": "module",
+  "name": "duraks-bugats-server",
+  "version": "1.2.5",
+  "main": "server.js",
+  "type": "commonjs",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
+    "cors": "^2.8.5",
     "express": "^4.19.2",
     "socket.io": "^4.7.5"
   }
