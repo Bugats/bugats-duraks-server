@@ -2,31 +2,23 @@
 <html lang="lv">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Duraks Online — Bugats Edition</title>
   <link rel="stylesheet" href="style.css" />
   <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
 </head>
 <body>
-<div class="app">
+<div id="app">
   <aside class="side">
     <h3>Duraks Online</h3>
-
-    <div class="row">
-      <input id="nick" class="input" placeholder="Tavs niks" />
-    </div>
-
+    <div class="row"><input id="nick" class="input" placeholder="Tavs niks" value="BUGATS" /></div>
     <div class="row">
       <select id="deckSize" class="input">
         <option value="36">36</option>
         <option value="52" selected>52</option>
       </select>
     </div>
-
-    <div class="row">
-      <button id="btnCreate" class="btn primary">Izveidot istabu</button>
-    </div>
-
+    <div class="row"><button id="btnCreate" class="btn primary">Izveidot istabu</button></div>
     <div class="row">
       <input id="room" class="input" placeholder="Istabas kods" />
       <button id="btnJoin" class="btn">Pievienoties</button>
@@ -44,32 +36,30 @@
 
   <main class="main">
     <div class="hud">
-      <div>
+      <div class="badges">
         <span class="badge">Istaba: <b id="roomLabel">—</b></span>
         <span class="badge">Trumpis: <b id="trumpLabel">—</b></span>
         <span class="badge">Kavā: <b id="stockCount">—</b></span>
         <span class="badge">Fāze: <b id="phase">—</b></span>
       </div>
-      <div>
-        <span id="turnLabel" class="badge">Gājiens: —</span>
-        <div class="timer"><div id="timerBar"></div></div>
+      <div class="turn"><span id="turnLabel" class="badge">Gājiens: —</span></div>
+    </div>
+
+    <div class="table">
+      <div class="zone">
+        <div class="zone-title">Metiens</div>
+        <div id="stack" class="stack"></div>
       </div>
-    </div>
 
-    <div class="zone">
-      <div class="zone-title">Metiens</div>
-      <div id="stack" class="stack"></div>
-      <div class="hint">* Uzbrūkot: iezīmē kārti rokā un klikšķini “Metiens” zonā. Aizstāvoties: iezīmē kārti un klikšķini uz pāra, ko nosist.</div>
-    </div>
+      <div class="zone">
+        <div class="zone-title">Pretinieks: <span id="oppName">—</span> (<span id="oppCount">0</span>)</div>
+        <div id="oppHand" class="hand"></div>
+      </div>
 
-    <div class="zone">
-      <div class="zone-title">Pretinieks: <span id="oppName">—</span> (<span id="oppCount">0</span>)</div>
-      <div id="oppHand" class="hand hand-hidden"></div>
-    </div>
-
-    <div class="zone">
-      <div class="zone-title">Tava roka (<span id="meCount">0</span>)</div>
-      <div id="meHand" class="hand"></div>
+      <div class="zone" id="attackDrop">
+        <div class="zone-title">Tava roka (<span id="meCount">0</span>)</div>
+        <div id="meHand" class="hand"></div>
+      </div>
     </div>
 
     <div class="footer">
@@ -77,15 +67,13 @@
       <button id="btnSolo" class="btn">Solo tests</button>
       <button id="btnEnd" class="btn">Beigt metienu</button>
       <button id="btnTake" class="btn">Paņemt</button>
+      <button id="btnPass" class="btn">Neaizmest</button>
       <div style="flex:1"></div>
-      <div class="badge">v1.2.4</div>
+      <div class="badge">v1.2.3</div>
     </div>
   </main>
 </div>
 
-<script>
-  const socket = io("/", { path: "/socket.io", transports: ["websocket"] });
-</script>
 <script src="client.js"></script>
 </body>
 </html>
