@@ -1,48 +1,81 @@
-/* style.css — Duraks Online (v1.2.5) */
 :root{
-  --bg: #0b1321;
-  --panel: #101a2e;
-  --text: #e5ecff;
-  --muted:#9fb0d6;
-  --accent:#45b1ff;
-  --btn:#1f2a44;
-  --ok:#6ee7b7;
-  --bad:#f87171;
+  --bg:#0e1522;
+  --panel:#121b2d;
+  --muted:#8aa0c2;
+  --text:#e7f0ff;
+  --accent:#3ea6ff;
+  --accent-2:#14d6b6;
+  --bad:#ff5d7a;
+  --good:#4cd97b;
+  --card:#0f1a2a;
+  --cardEdge:#1f2b41;
+  --shadow: 0 6px 20px rgba(0,0,0,.35);
 }
 *{box-sizing:border-box}
-html,body{height:100%;margin:0;background:var(--bg);color:var(--text);font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif}
-.app{display:grid;grid-template-columns:320px 1fr;gap:16px;min-height:100vh;padding:16px}
-.side{background:var(--panel);border-radius:16px;padding:16px;display:flex;flex-direction:column;gap:10px}
-.main{background:var(--panel);border-radius:16px;padding:16px;display:flex;flex-direction:column;gap:12px}
-h3,h4{margin:0 0 6px 0}
-.row{display:flex;gap:8px}
-.input{background:#0c1427;border:1px solid #203253;color:var(--text);border-radius:10px;padding:10px;width:100%}
-.btn{background:var(--btn);color:var(--text);border:1px solid #2b3c63;border-radius:10px;padding:10px 14px;cursor:pointer}
-.btn:hover{filter:brightness(1.1)}
-.btn.primary{background:#1d3a71}
-.badge{background:#0c1427;border:1px solid #21355a;color:var(--muted);padding:6px 10px;border-radius:999px}
-.log{background:#0c1427;border:1px solid #21355a;border-radius:10px;min-height:140px;padding:10px;overflow:auto}
-.chat{display:flex;gap:8px}
-.hud{display:flex;align-items:center;justify-content:space-between}
-.badges{display:flex;gap:8px;flex-wrap:wrap}
+html,body{height:100%}
+body{
+  margin:0;
+  font:14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+  color:var(--text); background:linear-gradient(180deg,#0b1120,#0e1522 40%, #0b1120);
+}
+.app{display:grid; grid-template-columns:320px 1fr; height:100vh; gap:16px; padding:16px}
+.side{
+  background:var(--panel); border-radius:14px; padding:16px; box-shadow:var(--shadow); overflow:auto;
+}
+.main{
+  background:var(--panel); border-radius:14px; padding:16px; box-shadow:var(--shadow); display:flex; flex-direction:column; gap:12px;
+}
+h3,h4{margin:8px 0 8px; color:#eaf3ff}
+.row{display:flex; gap:8px; margin:6px 0}
+.input{
+  width:100%; padding:10px 12px; border-radius:10px; border:1px solid #24324d; background:#0b1423; color:var(--text);
+}
+.btn{
+  background:#1a2742; color:var(--text); border:none; padding:10px 14px; border-radius:10px; cursor:pointer; transition:.15s; border:1px solid #24324d;
+}
+.btn:hover{filter:brightness(1.07)}
+.btn.primary{background:var(--accent); color:#00111f; border-color:transparent}
+.pill{padding:6px 10px; border-radius:999px; border:1px solid #24324d; background:#0c1730; color:var(--muted)}
+.pill[disabled]{opacity:.6}
 
-.table{display:flex;flex-direction:column;gap:14px}
-.zone{border:1px dashed #223457;border-radius:12px;padding:10px}
-.zone-title{color:var(--muted);margin-bottom:8px}
-.stack{display:flex;gap:12px;flex-wrap:wrap;min-height:96px}
-.pile{position:relative;width:64px;height:88px;border-radius:10px;border:1px solid #2b3c63;background:rgba(255,255,255,0.05);display:flex;align-items:center;justify-content:center}
-.pile .card{position:absolute;transition:all .2s ease}
-.pile .card.defend{transform:translate(10px, -10px) rotate(-6deg)}
+.badge{display:inline-block; background:#0c1730; border:1px solid #24324d; padding:6px 10px; border-radius:10px; color:var(--muted); margin-right:6px}
+.timer{display:inline-block; width:160px; height:10px; background:#0b1326; border:1px solid #25324b; border-radius:999px; margin-left:10px; vertical-align:middle}
+#timerBar{height:100%; width:0%; background:linear-gradient(90deg, var(--accent-2), var(--accent)); border-radius:999px}
 
-.hand{display:flex;gap:8px;min-height:92px;flex-wrap:wrap}
-.card{width:64px;height:88px;border-radius:10px;border:1px solid #2b3c63;background:#0c1427;display:flex;align-items:center;justify-content:center;position:relative;cursor:pointer}
-.card .rank{font-weight:700}
-.card .suit{position:absolute;bottom:6px;right:8px;font-size:18px}
-.card.red{color:#ff6b6b}
-.card.black{color:#dbeafe}
-.card.selected{outline:2px solid var(--accent);box-shadow:0 0 0 4px rgba(69,177,255,.15) inset}
+.log{
+  border:1px solid #24324d; background:#0b1326; padding:8px; border-radius:10px; height:160px; overflow:auto; color:#a9bedc
+}
+.chat{display:flex; gap:8px}
 
-.footer{display:flex;gap:8px;align-items:center}
+.hud{display:flex; justify-content:space-between; align-items:center; gap:10px}
+.zone{border:1px dashed #294064; border-radius:12px; padding:10px; margin:8px 0; background:#0c1530c0}
+.zone-title{font-weight:600; color:#b9c9e2; margin-bottom:6px}
+.stack{display:flex; flex-wrap:wrap; gap:12px}
+.pair{position:relative; width:70px; height:96px}
 
-.hint{font-size:12px;color:#8497c2}
-.ok{color:var(--ok)} .bad{color:var(--bad)}
+.hand{display:flex; gap:8px; flex-wrap:wrap; min-height:110px}
+.card{
+  width:70px; height:96px; border-radius:10px; border:1px solid var(--cardEdge);
+  background:radial-gradient(120px 80px at 20% 10%, #0f223b, #0b1626 55%, #081223);
+  box-shadow:var(--shadow); position:relative; display:flex; align-items:center; justify-content:center;
+  cursor:pointer; user-select:none; transition:.12s transform;
+}
+.card:hover{transform:translateY(-3px)}
+.card.back{
+  background:repeating-linear-gradient(45deg,#113055 0 6px, #0b1b31 6px 12px);
+  border-color:#1e3a5f;
+}
+.card.selected{outline:2px solid var(--accent); box-shadow:0 0 0 3px rgba(62,166,255,.25), var(--shadow)}
+.card.defend{transform:translate(12px,-8px) rotate(-6deg)}
+.card .rank{position:absolute; top:6px; left:7px; font-weight:700; font-size:17px}
+.card .suit{position:absolute; bottom:6px; right:8px; font-size:18px}
+.red{color:#ff6a8f}
+
+.footer{display:flex; gap:8px; align-items:center; margin-top:8px}
+
+.chk{display:flex; gap:8px; align-items:center; color:#bcd0eb}
+
+/* responsive */
+@media (max-width:1000px){
+  .app{grid-template-columns:1fr; height:auto; min-height:100vh}
+}
