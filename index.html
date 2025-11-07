@@ -60,16 +60,17 @@
         <div>
           <span id="turnLabel" class="badge">Gājiens: —</span>
           <div class="timer"><div id="timerBar"></div></div>
-          <button id="btnYourTurn" class="pill" disabled> Tavs gājiens </button>
+          <button id="btnYourTurn" class="pill" disabled>Tavs gājiens</button>
         </div>
       </div>
 
-      <!-- Metiena zona (uzbruktās/aizstāvētas kārtis pa pāriem) -->
       <section class="table">
         <div class="zone">
           <div class="zone-title">Metiens</div>
           <div id="stack" class="stack"></div>
-          <div class="hint" id="hint">* Klikšķi uz galda pāra, lai aizstāvētos. Uzbrukumā izvēlies kartes un spied “Uzbrukt”.</div>
+          <div class="hint" id="hint">
+            * Klikšķi uz galda pāra, lai aizstāvētos. Uzbrukumā izvēlies kartes un spied “Uzbrukt”.
+          </div>
         </div>
 
         <div class="zone">
@@ -84,12 +85,12 @@
       </section>
 
       <div class="footer">
-        <button id="btnAttack" class="btn primary">Uzbrukt</button>
-        <button id="btnEnd" class="btn">Beigt metienu</button>
+        <button id="btnAttack" class="btn primary">Uzbrukt / Aizstāvēties</button>
+        <button id="btnEnd" class="btn" disabled>Beigt metienu</button>
         <button id="btnTake" class="btn">Paņemt</button>
         <button id="btnPass" class="btn">Neaizmest</button>
         <div style="flex:1"></div>
-        <div class="badge" id="version">v1.2.6</div>
+        <div class="badge" id="version">v1.2.7</div>
       </div>
     </main>
   </div>
