@@ -18,8 +18,8 @@
 
       <div class="row">
         <select id="deckSize" class="input">
-          <option value="52">52</option>
           <option value="36">36</option>
+          <option value="52">52</option>
         </select>
       </div>
 
@@ -30,6 +30,13 @@
       <div class="row">
         <input id="room" class="input" placeholder="Istabas kods" />
         <button id="btnJoin" class="btn">Pievienoties</button>
+      </div>
+
+      <div class="row">
+        <label class="chk">
+          <input id="soloBot" type="checkbox" />
+          <span>Solo režīms (BOT)</span>
+        </label>
       </div>
 
       <h4>Žurnāls</h4>
@@ -44,42 +51,53 @@
 
     <main class="main">
       <div class="hud">
-        <div class="badges">
+        <div>
           <span class="badge">Istaba: <b id="roomLabel">—</b></span>
           <span class="badge">Trumpis: <b id="trumpLabel">—</b></span>
           <span class="badge">Kavā: <b id="stockCount">—</b></span>
           <span class="badge">Fāze: <b id="phase">—</b></span>
         </div>
-        <div><span id="turnLabel" class="badge">Gājiens: —</span></div>
+        <div>
+          <span id="turnLabel" class="badge">Gājiens: —</span>
+          <div class="timer"><div id="timerBar"></div></div>
+          <button id="btnYourTurn" class="pill" disabled> Tavs gājiens </button>
+        </div>
       </div>
 
-      <div class="table">
+      <!-- Metiena zona (uzbruktās/aizstāvētas kārtis pa pāriem) -->
+      <section class="table">
         <div class="zone">
-          <div class="zone-title">Metiens <span class="hint">* Klikšķi uz galda pāra pāris, lai aizstāvotos; uzbrukumā izvēlies kartes un spied “Uzbrukt”.</span></div>
+          <div class="zone-title">Metiens</div>
           <div id="stack" class="stack"></div>
+          <div class="hint" id="hint">* Klikšķi uz galda pāra, lai aizstāvētos. Uzbrukumā izvēlies kartes un spied “Uzbrukt”.</div>
         </div>
 
         <div class="zone">
-          <div class="zone-title">Pretinieks (<span id="oppName">—</span>): <span id="oppCount">0</span></div>
+          <div class="zone-title">Pretinieks: <span id="oppName">BOT</span> (<span id="oppCount">0</span>)</div>
           <div id="oppHand" class="hand"></div>
         </div>
 
-        <div class="zone">
+        <div class="zone" id="attackDrop">
           <div class="zone-title">Tava roka (<span id="meCount">0</span>)</div>
           <div id="meHand" class="hand"></div>
         </div>
-      </div>
+      </section>
 
       <div class="footer">
         <button id="btnAttack" class="btn primary">Uzbrukt</button>
         <button id="btnEnd" class="btn">Beigt metienu</button>
         <button id="btnTake" class="btn">Paņemt</button>
+        <button id="btnPass" class="btn">Neaizmest</button>
         <div style="flex:1"></div>
-        <div class="badge">v1.2.5</div>
+        <div class="badge" id="version">v1.2.6</div>
       </div>
     </main>
   </div>
 
+  <script>
+    const SERVER_URL = "https://duraks-online.onrender.com";
+    const socket = io(SERVER_URL, { path: "/socket.io", transports: ["websocket"] });
+  </script>
   <script src="client.js"></script>
 </body>
 </html>
