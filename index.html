@@ -2,83 +2,96 @@
 <html lang="lv">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Duraks Online — Bugats Edition</title>
   <link rel="stylesheet" href="style.css" />
-  <script>
-    /* Ja vajag, vari pārrakstīt ar globālu: window.SERVER_URL = 'https://duraks-online.onrender.com'; */
-    window.SERVER_URL = window.SERVER_URL || 'https://duraks-online.onrender.com';
-  </script>
   <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
 </head>
 <body>
-<div class="app">
-  <aside class="side">
-    <h2>Duraks Online</h2>
+  <div class="app">
+    <aside class="side">
+      <h3>Duraks Online</h3>
 
-    <div class="row"><input id="nick" class="input" placeholder="Tavs niks" value="BUGATS"></div>
-    <div class="row">
-      <select id="deckSize" class="input">
-        <option value="52">52</option>
-        <option value="36">36</option>
-      </select>
-    </div>
-
-    <div class="row">
-      <label class="check"><input type="checkbox" id="solo" checked> Solo režīms (BOT)</label>
-    </div>
-
-    <div class="row"><button id="btnCreate" class="btn primary">Izveidot istabu</button></div>
-    <div class="row">
-      <input id="room" class="input" placeholder="Istabas kods">
-      <button id="btnJoin" class="btn">Pievienoties</button>
-    </div>
-
-    <h4>Žurnāls</h4>
-    <div id="log" class="log"></div>
-
-    <h4>Čats</h4>
-    <div class="chat">
-      <input id="chatMsg" class="input" placeholder="Ziņa..." />
-      <button id="chatSend" class="btn">Sūtīt</button>
-    </div>
-  </aside>
-
-  <main class="main">
-    <div class="hud">
-      <div class="badge">Istaba: <b id="roomLabel">—</b></div>
-      <div class="badge">Trumpis: <b id="trumpLabel">—</b></div>
-      <div class="badge">Kavā: <b id="stockCount">—</b></div>
-      <div class="badge">Fāze: <b id="phase">—</b></div>
-      <div class="badge" id="turnBadge">Gājiens: —</div>
-    </div>
-
-    <div class="table">
-      <div>
-        <div class="zone-title">Metiens <span id="hint"></span></div>
-        <div id="stack" class="stack"></div>
+      <div class="row">
+        <input id="nick" class="input" placeholder="Tavs niks" />
       </div>
-      <div>
-        <div class="zone-title">Pretinieks: <span id="oppName">—</span> (<span id="oppCount">0</span>)</div>
-        <div id="oppHand" class="hand hand-closed"></div>
-      </div>
-      <div>
-        <div class="zone-title">Tava roka (<span id="meCount">0</span>)</div>
-        <div id="meHand" class="hand"></div>
-      </div>
-    </div>
 
-    <div class="footer">
-      <button id="btnAttack" class="btn primary">Uzbrukt</button>
-      <button id="btnEnd" class="btn">Beigt metienu</button>
-      <button id="btnTake" class="btn">Paņemt</button>
-      <button id="btnPass" class="btn">Neaizmest</button>
-      <div style="flex:1"></div>
-      <div class="badge" id="version">v1.2.8</div>
-    </div>
-  </main>
-</div>
+      <div class="row">
+        <label class="label">Kava</label>
+        <select id="deckSize" class="input">
+          <option value="36">36</option>
+          <option value="52">52</option>
+        </select>
+      </div>
 
-<script src="client.js"></script>
+      <div class="row">
+        <label class="label"><input type="checkbox" id="soloBot" checked /> Solo (pret BOT)</label>
+      </div>
+
+      <div class="row">
+        <button id="btnCreate" class="btn primary">Izveidot istabu</button>
+      </div>
+
+      <div class="row">
+        <input id="roomCode" class="input" placeholder="Istabas kods (XXXX)" />
+        <button id="btnJoin" class="btn">Pievienoties</button>
+      </div>
+
+      <h4>Žurnāls</h4>
+      <div id="log" class="log"></div>
+
+      <h4>Čats</h4>
+      <div class="chat">
+        <input id="chatMsg" class="input" placeholder="Ziņa…" />
+        <button id="chatSend" class="btn">Sūtīt</button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <div class="hud">
+        <div class="badges">
+          <span class="badge">Istaba: <b id="hudRoom">—</b></span>
+          <span class="badge">Trumpis: <b id="hudTrump">—</b></span>
+          <span class="badge">Kava: <b id="hudStock">—</b></span>
+          <span class="badge">Fāze: <b id="hudPhase">—</b></span>
+          <span class="badge">Gājiens: <b id="hudTurn">—</b></span>
+        </div>
+        <div class="badges">
+          <span class="badge small">v1.3 klienta UI</span>
+        </div>
+      </div>
+
+      <div id="table" class="table">
+        <div class="seat top-left"><div class="seat-body" data-seat="0"></div></div>
+        <div class="seat top-right"><div class="seat-body" data-seat="1"></div></div>
+        <div class="seat right"><div class="seat-body" data-seat="2"></div></div>
+        <div class="seat bottom-right"><div class="seat-body" data-seat="3"></div></div>
+        <div class="seat bottom-left"><div class="seat-body" data-seat="4"></div></div>
+        <div class="seat left"><div class="seat-body" data-seat="5"></div></div>
+
+        <div class="center-area">
+          <div class="play-area-title">Galds</div>
+          <div id="playArea" class="play-area"></div>
+        </div>
+      </div>
+
+      <div class="hand-wrap">
+        <div class="zone-title">Tava roka</div>
+        <div id="myHand" class="hand"></div>
+      </div>
+
+      <div class="footer">
+        <button id="btnAttack" class="btn primary">Uzbrukt</button>
+        <button id="btnThrow" class="btn">Piemest</button>
+        <button id="btnDefend" class="btn">Nosist</button>
+        <button id="btnEnd" class="btn">Beigt gājienu</button>
+        <button id="btnTake" class="btn">Paņemt</button>
+        <div style="flex:1;"></div>
+        <div class="badge small">Bugats Edition</div>
+      </div>
+    </main>
+  </div>
+
+  <script src="client.js"></script>
 </body>
 </html>
