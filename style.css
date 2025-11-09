@@ -5,8 +5,6 @@
   --text:#e7f0ff;
   --accent:#3ea6ff;
   --accent-2:#14d6b6;
-  --bad:#ff5d7a;
-  --good:#4cd97b;
   --card:#0f1a2a;
   --cardEdge:#1f2b41;
   --shadow: 0 6px 20px rgba(0,0,0,.35);
@@ -15,7 +13,7 @@
 html,body{height:100%}
 body{
   margin:0;
-  font:14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+  font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial;
   color:var(--text); background:linear-gradient(180deg,#0b1120,#0e1522 40%, #0b1120);
 }
 .app{display:grid; grid-template-columns:320px 1fr; height:100vh; gap:16px; padding:16px}
@@ -23,9 +21,10 @@ body{
   background:var(--panel); border-radius:14px; padding:16px; box-shadow:var(--shadow); overflow:auto;
 }
 .main{
-  background:var(--panel); border-radius:14px; padding:16px; box-shadow:var(--shadow); display:flex; flex-direction:column; gap:12px;
+  background:var(--panel); border-radius:14px; padding:16px; box-shadow:var(--shadow);
+  display:flex; flex-direction:column; gap:12px; overflow:auto;
 }
-h3,h4{margin:8px 0 8px; color:#eaf3ff}
+h3,h4{margin:8px 0; color:#eaf3ff}
 .row{display:flex; gap:8px; margin:6px 0}
 .input{
   width:100%; padding:10px 12px; border-radius:10px; border:1px solid #24324d; background:#0b1423; color:var(--text);
@@ -34,12 +33,13 @@ h3,h4{margin:8px 0 8px; color:#eaf3ff}
   background:#1a2742; color:var(--text); border:none; padding:10px 14px; border-radius:10px; cursor:pointer; transition:.15s; border:1px solid #24324d;
 }
 .btn:hover{filter:brightness(1.07)}
+.btn:disabled{opacity:.5; cursor:not-allowed}
 .btn.primary{background:var(--accent); color:#00111f; border-color:transparent}
 .pill{padding:6px 10px; border-radius:999px; border:1px solid #24324d; background:#0c1730; color:var(--muted)}
 .pill[disabled]{opacity:.6}
 
 .badge{display:inline-block; background:#0c1730; border:1px solid #24324d; padding:6px 10px; border-radius:10px; color:var(--muted); margin-right:6px}
-.timer{display:inline-block; width:160px; height:10px; background:#0b1326; border:1px solid #25324b; border-radius:999px; margin-left:10px; vertical-align:middle}
+.timer{display:inline-block; width:180px; height:10px; background:#0b1326; border:1px solid #25324b; border-radius:999px; margin-left:10px; vertical-align:middle}
 #timerBar{height:100%; width:0%; background:linear-gradient(90deg, var(--accent-2), var(--accent)); border-radius:999px}
 
 .log{
@@ -48,15 +48,27 @@ h3,h4{margin:8px 0 8px; color:#eaf3ff}
 .chat{display:flex; gap:8px}
 
 .hud{display:flex; justify-content:space-between; align-items:center; gap:10px}
-.zone{border:1px dashed #294064; border-radius:12px; padding:10px; margin:8px 0; background:#0c1530c0}
-.zone-title{font-weight:600; color:#b9c9e2; margin-bottom:6px}
-.stack{display:flex; flex-wrap:wrap; gap:12px}
-.pair{position:relative; width:70px; height:96px}
 
-.hand{display:flex; gap:8px; flex-wrap:wrap; min-height:110px}
+.zone{
+  border:1px dashed #294064; border-radius:12px; padding:12px; margin:10px 0; background:#0c1530c0
+}
+.zone-title{font-weight:600; color:#b9c9e2; margin-bottom:6px}
+
+/* lielāks galds */
+.stack{
+  display:flex; flex-wrap:wrap; gap:16px; min-height:140px;
+}
+.pair{position:relative; width:88px; height:124px}
+
+/* rokas */
+.hand{
+  display:flex; gap:10px; flex-wrap:wrap; min-height:140px
+}
+
+/* kartes — lielākas */
 .card{
-  width:70px; height:96px; border-radius:10px; border:1px solid var(--cardEdge);
-  background:radial-gradient(120px 80px at 20% 10%, #0f223b, #0b1626 55%, #081223);
+  width:88px; height:124px; border-radius:12px; border:1px solid var(--cardEdge);
+  background:radial-gradient(140px 100px at 22% 12%, #102544, #0b1626 55%, #081223);
   box-shadow:var(--shadow); position:relative; display:flex; align-items:center; justify-content:center;
   cursor:pointer; user-select:none; transition:.12s transform;
 }
@@ -64,14 +76,18 @@ h3,h4{margin:8px 0 8px; color:#eaf3ff}
 .card.back{
   background:repeating-linear-gradient(45deg,#113055 0 6px, #0b1b31 6px 12px);
   border-color:#1e3a5f;
+  cursor:default;
 }
 .card.selected{outline:2px solid var(--accent); box-shadow:0 0 0 3px rgba(62,166,255,.25), var(--shadow)}
-.card.defend{transform:translate(12px,-8px) rotate(-6deg)}
-.card .rank{position:absolute; top:6px; left:7px; font-weight:700; font-size:17px}
-.card .suit{position:absolute; bottom:6px; right:8px; font-size:18px}
+.card.defend{transform:translate(14px,-10px) rotate(-6deg)}
+
+.card .rank{position:absolute; top:7px; left:8px; font-weight:800; font-size:20px}
+.card .suit{position:absolute; bottom:7px; right:9px; font-size:22px}
 .red{color:#ff6a8f}
 
 .footer{display:flex; gap:8px; align-items:center; margin-top:8px}
+
+.hint{margin-top:6px; color:#9fb2d2; font-size:13px}
 
 .chk{display:flex; gap:8px; align-items:center; color:#bcd0eb}
 
