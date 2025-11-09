@@ -2,7 +2,7 @@
 <html lang="lv">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Duraks Online — Bugats Edition</title>
   <link rel="stylesheet" href="style.css" />
   <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
@@ -17,7 +17,6 @@
       </div>
 
       <div class="row">
-        <label class="label">Kava</label>
         <select id="deckSize" class="input">
           <option value="36">36</option>
           <option value="52">52</option>
@@ -25,7 +24,7 @@
       </div>
 
       <div class="row">
-        <label class="label"><input type="checkbox" id="soloBot" checked /> Solo (pret BOT)</label>
+        <label class="chk"><input type="checkbox" id="solo" /> Solo režīms (BOT)</label>
       </div>
 
       <div class="row">
@@ -33,7 +32,7 @@
       </div>
 
       <div class="row">
-        <input id="roomCode" class="input" placeholder="Istabas kods (XXXX)" />
+        <input id="room" class="input" placeholder="Istabas kods" />
         <button id="btnJoin" class="btn">Pievienoties</button>
       </div>
 
@@ -49,45 +48,38 @@
 
     <main class="main">
       <div class="hud">
-        <div class="badges">
-          <span class="badge">Istaba: <b id="hudRoom">—</b></span>
-          <span class="badge">Trumpis: <b id="hudTrump">—</b></span>
-          <span class="badge">Kava: <b id="hudStock">—</b></span>
-          <span class="badge">Fāze: <b id="hudPhase">—</b></span>
-          <span class="badge">Gājiens: <b id="hudTurn">—</b></span>
-        </div>
-        <div class="badges">
-          <span class="badge small">v1.3 klienta UI</span>
+        <div>
+          <span class="badge">Istaba: <b id="roomLabel">—</b></span>
+          <span class="badge">Trumpis: <b id="trumpLabel">—</b></span>
+          <span class="badge">Kavā: <b id="stockCount">—</b></span>
+          <span class="badge">Fāze: <b id="phase">—</b></span>
+          <span class="badge">Gājiens: <b id="turnLabel">—</b></span>
         </div>
       </div>
 
-      <div id="table" class="table">
-        <div class="seat top-left"><div class="seat-body" data-seat="0"></div></div>
-        <div class="seat top-right"><div class="seat-body" data-seat="1"></div></div>
-        <div class="seat right"><div class="seat-body" data-seat="2"></div></div>
-        <div class="seat bottom-right"><div class="seat-body" data-seat="3"></div></div>
-        <div class="seat bottom-left"><div class="seat-body" data-seat="4"></div></div>
-        <div class="seat left"><div class="seat-body" data-seat="5"></div></div>
+      <div class="table circle">
+        <div id="seat0" class="seat"><div class="seatNick">—</div><div class="seatCount">(0)</div></div>
+        <div id="seat1" class="seat"><div class="seatNick">—</div><div class="seatCount">(0)</div></div>
+        <div id="seat2" class="seat"><div class="seatNick">—</div><div class="seatCount">(0)</div></div>
+        <div id="seat3" class="seat"><div class="seatNick">—</div><div class="seatCount">(0)</div></div>
+        <div id="seat4" class="seat"><div class="seatNick">—</div><div class="seatCount">(0)</div></div>
+        <div id="seat5" class="seat"><div class="seatNick">—</div><div class="seatCount">(0)</div></div>
 
-        <div class="center-area">
-          <div class="play-area-title">Galds</div>
-          <div id="playArea" class="play-area"></div>
-        </div>
+        <div id="pile" class="pile"></div> <!-- galda vidus -->
       </div>
 
-      <div class="hand-wrap">
-        <div class="zone-title">Tava roka</div>
-        <div id="myHand" class="hand"></div>
+      <div class="handWrap">
+        <div class="zone-title">Tava roka (<span id="meCount">0</span>)</div>
+        <div id="meHand" class="hand"></div>
       </div>
 
       <div class="footer">
         <button id="btnAttack" class="btn primary">Uzbrukt</button>
-        <button id="btnThrow" class="btn">Piemest</button>
-        <button id="btnDefend" class="btn">Nosist</button>
-        <button id="btnEnd" class="btn">Beigt gājienu</button>
+        <button id="btnEnd" class="btn">Gājiens beigts</button>
         <button id="btnTake" class="btn">Paņemt</button>
-        <div style="flex:1;"></div>
-        <div class="badge small">Bugats Edition</div>
+        <button id="btnPass" class="btn">Neaizmest</button>
+        <div style="flex:1"></div>
+        <div class="badge">v1.2.9</div>
       </div>
     </main>
   </div>
