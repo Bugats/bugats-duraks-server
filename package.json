@@ -1,15 +1,14 @@
 {
-  "name": "bugats-duraks-server",
-  "version": "1.2.9",
-  "description": "Duraks Online — Bugats Edition (server)",
+  "name": "duraks-online",
+  "version": "1.0.0",
+  "description": "Duraks Online — seating demo with one-seat-per-player rule",
   "main": "server.js",
-  "type": "commonjs",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
-    "express": "^4.19.2",
+    "express": "^4.18.2",
     "socket.io": "^4.7.5"
   }
 }
