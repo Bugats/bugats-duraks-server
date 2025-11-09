@@ -1,159 +1,156 @@
-// Duraks Online — Bugats Edition (v1.2.9, klients)
-// Pieslēdzamies serverim (Render u.c.). Ja tev serveris ir citā domēnā, aizpildi URL:
-const SERVER_URL = "https://duraks-online.onrender.com"; // ← ja hostē vienā vietā ar serveri, vari nomainīt uz "".
+// ====== Savienojums ======
+const socket = io(); // tas pats hostings
 
-const socket = io(SERVER_URL, {
-  path: "/socket.io",
-  transports: ["websocket", "polling"]
-});
+// ====== UI elementi ======
+const elNick = document.getElementById('nick');
+const elRoom = document.getElementById('room');
+const elBtnCreate = document.getElementById('btnCreate');
+const elBtnJoin = document.getElementById('btnJoin');
+const elRoomLabel = document.getElementById('roomLabel');
+const elTurnLabel = document.getElementById('turnLabel');
+const elSeats = document.getElementById('seats');
+const elLog = document.getElementById('log');
+const elBtnLeave = document.getElementById('btnLeave');
 
-const $ = sel => document.querySelector(sel);
-const logEl = $('#log');
-const handEl = $('#meHand');
-const pileEl = $('#pile');
-let currentRoom = null;
-let myId = null;
-let myHandSel = new Set();
-let lastPublic = null;
-
-function addLog(t){
-  const div = document.createElement('div');
-  div.textContent = t;
-  logEl.prepend(div);
-  while (logEl.children.length>200) logEl.removeChild(logEl.lastChild);
+function log(x) {
+  elLog.textContent += x + '\n';
+  elLog.scrollTop = elLog.scrollHeight;
 }
 
-$('#btnCreate').onclick = ()=>{
-  socket.emit('createRoom',{
-    nick: $('#nick').value || 'Spēlētājs',
-    deckSize: +$('#deckSize').value,
-    solo: $('#solo').checked
-  },res=>{
-    if (!res?.ok) return alert(res?.error||'Neizdevās');
-    currentRoom = res.roomId;
-    $('#room').value = res.roomId;
-    $('#roomLabel').textContent = res.roomId;
-    addLog(`Istaba izveidota: ${res.roomId}`);
+// ====== Lokālais stāvoklis ======
+let roomId = null;
+let playerId = null;
+let mySeatId = null;
+let joinPending = false;
+let lastSeats = [];
+
+// ====== UI ģenerēšana ======
+/**
+ * Novieto 6 sēdvietas pa apli (stabilas koordinātas)
+ * secība: 0 augšā, tad pulksteņrād. virzienā.
+ */
+const circlePos = (() => {
+  const cx = 50, cy = 50, R = 36; // %
+  const ang = [270, 330, 30, 90, 150, 210]; // grādi
+  return ang.map(a => {
+    const rad = a * Math.PI / 180;
+    return { left: cx + R * Math.cos(rad), top: cy + R * Math.sin(rad) };
   });
-};
+})();
 
-$('#btnJoin').onclick = ()=>{
-  const roomId = $('#room').value.trim().toUpperCase();
-  if (!roomId) return;
-  socket.emit('joinRoom',{ nick: $('#nick').value || 'Spēlētājs', roomId }, res=>{
-    if (!res?.ok) return alert(res?.error||'Neizdevās');
-    currentRoom = roomId;
-    $('#roomLabel').textContent = roomId;
-    addLog(`Pievienojies: ${roomId}`);
-  });
-};
+function renderSeats(seats) {
+  elSeats.innerHTML = '';
+  seats.forEach((s, i) => {
+    const pos = circlePos[i];
+    const seat = document.createElement('div');
+    seat.className = 'seat';
+    seat.style.left = pos.left + '%';
+    seat.style.top = pos.top + '%';
 
-$('#btnAttack').onclick = ()=>{
-  if (!currentRoom) return;
-  const cards = [...myHandSel].map(idx=>window._meHand[idx]);
-  if (!cards.length) return;
-  socket.emit('attack',{ roomId: currentRoom, cards }, res=>{
-    if (!res?.ok) alert(res?.error||'Neizdevās');
-    myHandSel.clear(); renderMeHand(window._meHand);
-  });
-};
+    if (s.occupied) seat.classList.add('taken');
+    if (mySeatId === s.id) seat.classList.add('you');
 
-$('#btnEnd').onclick = ()=>{
-  if (!currentRoom) return;
-  socket.emit('endTurn',{ roomId: currentRoom }, res=>{
-    if (!res?.ok) alert(res?.error||'Nevar beigt gājienu: '+(res?.error||'')); 
-  });
-};
+    const place = document.createElement('div');
+    place.className = 'place';
+    place.textContent = `Vieta ${i + 1}`;
 
-$('#btnTake').onclick = ()=>{
-  if (!currentRoom) return;
-  socket.emit('take',{ roomId: currentRoom }, res=>{
-    if (!res?.ok) alert(res?.error||'Neizdevās');
-  });
-};
+    const who = document.createElement('div');
+    who.className = 'who';
+    who.textContent = s.occupied ? (mySeatId === s.id ? 'Tu' : (s.nick || 'Spēlētājs')) : 'Brīvs';
 
-$('#btnPass').onclick = ()=>{
-  // šeit nekā nav — piemest notiek automātiski caur izvēli un servera validāciju.
-  // Ja gribi var pievienot atsevišķu client-side "throwIn" pogu ar izvēlēto kārti.
-  if (!currentRoom) return;
-  alert('Piemest metiena laikā var uzbrucēji (nevis aizstāvis). Vienkārši uzlasi kārtis un spied “Uzbrukt”.');
-};
+    const cnt = document.createElement('div');
+    cnt.className = 'count';
+    cnt.textContent = s.occupied ? '(rokā: ?)' : '';
 
-function renderSeats(state){
-  // Nulle visas
-  for (let i=0;i<6;i++){
-    const s = $('#seat'+i);
-    s.querySelector('.seatNick').textContent = '—';
-    s.querySelector('.seatCount').textContent = '(0)';
-    s.classList.remove('you');
-  }
-  state.seats.forEach((p,i)=>{
-    const s = $('#seat'+i);
-    if (!s) return;
-    s.querySelector('.seatNick').textContent = p.nick+(p.isBot?' (BOT)':'');
-    s.querySelector('.seatCount').textContent = `(${p.count})`;
-    if (p.id===state.me?.id) s.classList.add('you');
+    const btn = document.createElement('button');
+    btn.className = 'join';
+    btn.textContent = 'Pievienoties';
+    btn.onclick = () => joinSeat(s.id);
+
+    seat.append(place, who, cnt);
+    // rādām "Pievienoties" tikai, ja nav aizņemts un es vēl nesēžu
+    if (!s.occupied && mySeatId === null) seat.appendChild(btn);
+    elSeats.appendChild(seat);
   });
 }
 
-function suitColor(s){ return (s==='♥'||s==='♦') ? 'red' : ''; }
+/** UX debouncer + server-ACK */
+function joinSeat(seatId) {
+  if (joinPending || mySeatId !== null || !roomId) return;
+  joinPending = true;
 
-function renderPile(state){
-  pileEl.innerHTML = '';
-  state.table.forEach(pair=>{
-    const wrap = document.createElement('div'); wrap.className='pair';
-    const a = document.createElement('div'); a.className = 'card '+suitColor(pair.attack.s);
-    a.innerHTML = `<div class="r">${pair.attack.r}</div><div class="s">${pair.attack.s}</div>`;
-    wrap.appendChild(a);
-    if (pair.defend){
-      const d = document.createElement('div'); d.className='card def '+suitColor(pair.defend.s);
-      d.innerHTML = `<div class="r">${pair.defend.r}</div><div class="s">${pair.defend.s}</div>`;
-      wrap.appendChild(d);
+  socket.emit('seat:join', { roomId, seatId }, (res) => {
+    joinPending = false;
+    if (res.ok) {
+      mySeatId = res.seatId;
+      log(`🪑 Iekārtojies vietā ${res.seatId + 1}.`);
+      renderSeats(lastSeats);
+    } else {
+      if (res.err === 'taken') alert('Sēdvieta jau aizņemta.');
+      else if (res.err === 'already-seated') {
+        mySeatId = res.seatId; // idempotence
+        renderSeats(lastSeats);
+      } else if (res.err === 'too-fast') {
+        alert('Mēģini pēc mirkļa vēlreiz.');
+      } else {
+        alert('Neizdevās pievienoties vietai.');
+      }
     }
-    pileEl.appendChild(wrap);
   });
 }
 
-function renderMeHand(hand){
-  window._meHand = hand || [];
-  $('#meCount').textContent = (hand||[]).length;
-  handEl.innerHTML = '';
-  (hand||[]).forEach((c,idx)=>{
-    const el = document.createElement('div');
-    el.className = 'card '+suitColor(c.s);
-    if (myHandSel.has(idx)) el.classList.add('sel');
-    el.innerHTML = `<div class="r">${c.r}</div><div class="s">${c.s}</div>`;
-    el.onclick = ()=>{
-      if (myHandSel.has(idx)) myHandSel.delete(idx); else myHandSel.add(idx);
-      renderMeHand(window._meHand);
-    };
-    handEl.appendChild(el);
+// ====== Pogas ======
+elBtnCreate.onclick = () => {
+  const nick = (elNick.value || 'BUGATS').trim();
+  socket.emit('room:create', { nick }, (res) => {
+    if (!res.ok) return alert('Neizdevās izveidot istabu.');
+    roomId = res.roomId;
+    playerId = res.playerId;
+    mySeatId = null;
+    elRoomLabel.textContent = roomId;
+    lastSeats = res.seats;
+    log(`🧪 Izveidota istaba ${roomId}`);
+    renderSeats(lastSeats);
   });
-}
+};
 
-socket.on('connect', ()=>{ myId = socket.id; });
+elBtnJoin.onclick = () => {
+  const nick = (elNick.value || 'BUGATS').trim();
+  const code = (elRoom.value || '').trim().toUpperCase();
+  if (!code) return alert('Ievadi istabas kodu.');
 
-socket.on('state', (state)=>{
-  lastPublic = state;
-  $('#trumpLabel').textContent = state.trump || '—';
-  $('#stockCount').textContent = state.stock ?? '—';
-  $('#phase').textContent = state.phase || '—';
-  $('#turnLabel').textContent = state.attacker===state.me?.id ? 'Tu' :
-                                (state.defender===state.me?.id ? 'Tu aizstāvi' : 'Cits');
-
-  renderSeats(state);
-  renderPile(state);
-  (state.log||[]).slice(-6).reverse().forEach((l,i)=>{
-    if (i===0) addLog(l);
+  socket.emit('room:join', { roomId: code, nick }, (res) => {
+    if (!res.ok) return alert('Istaba nav atrasta.');
+    roomId = code;
+    playerId = res.playerId;
+    mySeatId = null;
+    elRoomLabel.textContent = roomId;
+    lastSeats = res.seats;
+    log(`➡️ Pievienojies ${roomId}`);
+    renderSeats(lastSeats);
   });
-  renderMeHand(state.me?.hand||[]);
+};
+
+// (demo) atstāt sēdvietu — UI pusē tikai vizuāli
+elBtnLeave.onclick = () => {
+  if (mySeatId === null) return;
+  log('🚪 (demo) Atstāji sēdvietu (serveris saglabāēs, kad veikli pēc tam pārkāpsi citur vai atvienosies).');
+  mySeatId = null;
+  renderSeats(lastSeats);
+};
+
+// ====== Socket klausītāji ======
+socket.on('connect', () => log('✅ Savienots ar serveri.'));
+socket.on('disconnect', () => {
+  log('⛔ Atvienots no servera.');
+  roomId = null;
+  playerId = null;
+  mySeatId = null;
+  renderSeats([]);
+  elRoomLabel.textContent = '—';
 });
 
-socket.on('state_public', (p)=>{ /* ja vajag skatītājiem */ });
-
-// sākotnējais stāvoklis atjaunošanai
-setInterval(()=>{
-  if (currentRoom){
-    socket.emit('state',{ roomId: currentRoom }, ()=>{});
-  }
-}, 5000);
+socket.on('seat:update', ({ seats }) => {
+  lastSeats = seats;
+  renderSeats(seats);
+});
