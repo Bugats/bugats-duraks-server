@@ -1,104 +1,84 @@
 <!DOCTYPE html>
 <html lang="lv">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta charset="UTF-8">
   <title>Duraks Online — Bugats Edition</title>
-  <link rel="stylesheet" href="style.css" />
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="style.css">
   <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
 </head>
 <body>
-  <div class="app">
-    <aside class="side">
-      <h3>Duraks Online</h3>
+<div id="app">
+  <aside class="side">
+    <h2>Duraks Online</h2>
 
-      <div class="row">
-        <input id="nick" class="input" placeholder="Tavs niks" />
+    <label>Niks</label>
+    <input id="nick" class="input" placeholder="Tavs niks" value="BUGATS">
+
+    <label>Kava</label>
+    <select id="deck" class="input">
+      <option value="52">52</option>
+      <option value="36">36</option>
+    </select>
+
+    <div class="row gap">
+      <button id="btnCreate" class="btn primary">Izveidot istabu</button>
+      <label class="chk"><input id="solo" type="checkbox" checked> Solo režīms (BOT)</label>
+    </div>
+
+    <div class="row">
+      <input id="room" class="input" placeholder="Istabas kods">
+      <button id="btnJoin" class="btn">Pievienoties</button>
+    </div>
+
+    <h4>Žurnāls</h4>
+    <div id="log" class="log"></div>
+
+    <h4>Čats</h4>
+    <div class="row">
+      <input id="msg" class="input" placeholder="Ziņa…">
+      <button id="btnSend" class="btn">Sūtīt</button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="hud">
+      <div class="badges">
+        <span class="badge">Istaba: <b id="roomLabel">—</b></span>
+        <span class="badge">Trumpis: <b id="trump">—</b></span>
+        <span class="badge">Kavā: <b id="stock">—</b></span>
+        <span class="badge">Fāze: <b id="phase">—</b></span>
+        <span class="badge">Gājiens: <b id="turn">—</b></span>
       </div>
+      <div id="hint" class="hint"></div>
+    </div>
 
-      <div class="row">
-        <select id="deckSize" class="input">
-          <option value="36">36</option>
-          <option value="52">52</option>
-        </select>
-      </div>
+    <section>
+      <h3>Metiens</h3>
+      <div id="table" class="table"></div>
+      <div id="throwInfo" class="subhint"></div>
+    </section>
 
-      <div class="row">
-        <button id="btnCreate" class="btn primary">Izveidot istabu</button>
-      </div>
+    <section>
+      <h3>Pretinieks (<span id="oppCount">0</span>)</h3>
+      <div id="opp" class="hand opp"></div>
+    </section>
 
-      <div class="row">
-        <input id="room" class="input" placeholder="Istabas kods" />
-        <button id="btnJoin" class="btn">Pievienoties</button>
-      </div>
+    <section>
+      <h3>Tava roka (<span id="meCount">0</span>)</h3>
+      <div id="me" class="hand"></div>
+    </section>
 
-      <div class="row">
-        <label class="chk">
-          <input id="soloBot" type="checkbox" />
-          <span>Solo režīms (BOT)</span>
-        </label>
-      </div>
+    <footer class="footer">
+      <button id="btnAttack" class="btn primary">Uzbrukt</button>
+      <button id="btnEnd" class="btn">Beigt metienu</button>
+      <button id="btnTake" class="btn">Paņemt</button>
+      <button id="btnNo" class="btn">Neaizmest</button>
+      <div class="right"><span class="badge">v1.2.8</span></div>
+    </footer>
+  </main>
+</div>
 
-      <h4>Žurnāls</h4>
-      <div id="log" class="log"></div>
-
-      <h4>Čats</h4>
-      <div class="chat">
-        <input id="chatMsg" class="input" placeholder="Ziņa..." />
-        <button id="chatSend" class="btn">Sūtīt</button>
-      </div>
-    </aside>
-
-    <main class="main">
-      <div class="hud">
-        <div>
-          <span class="badge">Istaba: <b id="roomLabel">—</b></span>
-          <span class="badge">Trumpis: <b id="trumpLabel">—</b></span>
-          <span class="badge">Kavā: <b id="stockCount">—</b></span>
-          <span class="badge">Fāze: <b id="phase">—</b></span>
-        </div>
-        <div>
-          <span id="turnLabel" class="badge">Gājiens: —</span>
-          <div class="timer"><div id="timerBar"></div></div>
-          <button id="btnYourTurn" class="pill" disabled>Tavs gājiens</button>
-        </div>
-      </div>
-
-      <section class="table">
-        <div class="zone">
-          <div class="zone-title">Metiens</div>
-          <div id="stack" class="stack"></div>
-          <div class="hint" id="hint">
-            * Klikšķi uz galda pāra, lai aizstāvētos. Uzbrukumā izvēlies kartes un spied “Uzbrukt”.
-          </div>
-        </div>
-
-        <div class="zone">
-          <div class="zone-title">Pretinieks: <span id="oppName">BOT</span> (<span id="oppCount">0</span>)</div>
-          <div id="oppHand" class="hand"></div>
-        </div>
-
-        <div class="zone" id="attackDrop">
-          <div class="zone-title">Tava roka (<span id="meCount">0</span>)</div>
-          <div id="meHand" class="hand"></div>
-        </div>
-      </section>
-
-      <div class="footer">
-        <button id="btnAttack" class="btn primary">Uzbrukt / Aizstāvēties</button>
-        <button id="btnEnd" class="btn" disabled>Beigt metienu</button>
-        <button id="btnTake" class="btn">Paņemt</button>
-        <button id="btnPass" class="btn">Neaizmest</button>
-        <div style="flex:1"></div>
-        <div class="badge" id="version">v1.2.7</div>
-      </div>
-    </main>
-  </div>
-
-  <script>
-    const SERVER_URL = "https://duraks-online.onrender.com";
-    const socket = io(SERVER_URL, { path: "/socket.io", transports: ["websocket"] });
-  </script>
-  <script src="client.js"></script>
+<script src="client.js"></script>
 </body>
 </html>
