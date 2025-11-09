@@ -115,21 +115,30 @@ function botAttack(room){
   let canOpen = Math.max(0, defenderLeft - open);
   if(canOpen<=0) return false;
 
-  const tableRanks = ranksOnTable(room.stack);
-  const candidates = sortCheapFirst(hand, room.trump)
-    .filter(c => equalRankToAnyOnTable(room.stack, c.rank));
-
-  if(!candidates.length) return false;
-
-  // dodam 1–2 kārtis atkarībā no vietas
+  const sorted = sortCheapFirst(hand, room.trump);
   const toPlay=[];
-  for(const c of candidates){
-    if(!canOpen) break;
-    // Neatvērt vairāk par 2 vienā solī (lai nepārpludinātu)
-    if(toPlay.length>=2) break;
-    toPlay.push(c); canOpen--;
-    // ja galda rangu vēl nav, drīkst ievietot jebkuru rangu; ja jau ir — candidates to respektē
+
+  if(room.stack.length===0){
+    // Pirmais uzbrukums: izvēlas lētāko rangu un met tikai TO rangu
+    const base = sorted[0];
+    const sameRank = sorted.filter(c=>c.rank===base.rank);
+    for(const c of sameRank){
+      if(!canOpen) break;
+      toPlay.push(c);
+      canOpen--;
+    }
+  } else {
+    // Turpmāk – tikai rangi, kas jau ir uz galda
+    const allowed = ranksOnTable(room.stack);
+    for(const c of sorted){
+      if(!canOpen) break;
+      if(allowed.has(c.rank)){
+        toPlay.push(c);
+        canOpen--;
+      }
+    }
   }
+
   if(!toPlay.length) return false;
 
   // izņem no rokas un iemet galdā
@@ -189,12 +198,10 @@ function scheduleBot(room, delay=350){
       }else if(room.turnId===room.botId && room.phase==="defend"){
         acted = botDefend(room);
       }else{
-        // varbūt jābeidz metiens
         acted = botMaybeEnd(room);
       }
     } finally {
       room.botBusy = false;
-      // ja joprojām BOTa kārta vai jābeidz metiens – turpinām
       if(room.turnId===room.botId || (room.attackerId===room.botId && room.stack.length && room.stack.every(p=>p.defend))){
         scheduleBot(room, 450);
       }
@@ -233,7 +240,6 @@ io.on("connection",(socket)=>{
       room.hands[bid]=[]; dealToSix(room,bid);
       startRound(room); pushState(room);
       socket.emit("room",code);
-      // ja uzbrucējs ir BOT — lai uzreiz domā
       scheduleBot(room, 400);
     }else{
       pushState(room);
@@ -266,7 +272,17 @@ io.on("connection",(socket)=>{
     if(room.phase!=="attack" || room.turnId!==socket.id) return;
     const hand=room.hands[socket.id]; if(!cards?.length) return;
 
-    if(!cards.every(c=>equalRankToAnyOnTable(room.stack, c.rank))) return socket.emit("errorMsg","Rangs neatbilst esošajiem uz galda.");
+    // JAUNS: pirmajā uzbrukumā, ja >1 kārts, visām jābūt viena ranga
+    if(room.stack.length===0 && cards.length>1){
+      const r = cards[0].rank;
+      if(!cards.every(c=>c.rank===r)){
+        return socket.emit("errorMsg","Pirmajā uzbrukumā visas kārtis jābūt viena ranga.");
+      }
+    }
+
+    // turpmāk – tikai rangi, kas ir uz galda
+    if(!cards.every(c=>equalRankToAnyOnTable(room.stack, c.rank)))
+      return socket.emit("errorMsg","Rangs neatbilst esošajiem uz galda.");
 
     const open=room.stack.filter(p=>!p.defend).length;
     const defCount=(room.hands[room.defenderId]||[]).length;
