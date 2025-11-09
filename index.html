@@ -1,83 +1,77 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="lv">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta charset="UTF-8" />
   <title>Duraks Online — Bugats Edition</title>
-  <link rel="stylesheet" href="style.css" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link href="style.css" rel="stylesheet" />
 </head>
 <body>
-  <div id="app">
-    <aside class="panel">
-      <h1>Duraks Online</h1>
-
-      <label>Vārds</label>
-      <input id="nick" placeholder="BUGATS" value="BUGATS"/>
-
-      <label>Kava</label>
-      <select id="deckSel">
-        <option value="36">36 kārtis (6–A)</option>
-        <option value="52">52 kārtis (2–A)</option>
-      </select>
-
-      <div class="row">
-        <button id="btnCreate">Izveidot istabu</button>
-        <button id="btnStart" class="accent">Sākt spēli</button>
+  <div class="app">
+    <header>
+      <h1>Duraks Lobby</h1>
+      <div class="controls">
+        <label>Vārds: <input id="nick" value="BUGATS" /></label>
+        <label>Kava:
+          <select id="deckSel">
+            <option value="36">36 kārtis (2–4)</option>
+            <option value="52">52 kārtis (2–4)</option>
+          </select>
+        </label>
+        <label><input type="checkbox" id="solo"> Solo režīms (BOT)</label>
+        <button id="createRoom">Izveidot istabu</button>
+        <input id="joinCode" placeholder="Istabas kods" />
+        <button id="joinRoom">Pievienoties</button>
+        <span class="code" id="roomCode"></span>
       </div>
-
-      <h3>Istabas</h3>
-      <div id="rooms"></div>
-
-      <div class="hint">
-        <strong>Padoms:</strong> ja istabā esi viens, serveris piesēdinās BOT.
-      </div>
-    </aside>
+    </header>
 
     <main>
-      <div class="lobby">
-        <div class="topbar">
-          <div>Istaba: <span id="roomId">—</span></div>
-          <div>Trumips: <span id="trump">—</span></div>
-          <div>Fāze: <span id="phase">—</span></div>
-          <div>Gājiens: <span id="turn">—</span></div>
+      <aside class="sidebar">
+        <p><b>Istabas</b></p>
+        <div id="seats" class="seats"></div>
+        <hr />
+        <div class="toggles">
+          <label><input type="checkbox" id="toggle-hints" checked> Hinti</label>
+          <label><input type="checkbox" id="toggle-confirm" checked> Apstiprinājumi</label>
+        </div>
+        <div class="actions">
+          <button id="startGame">Sākt spēli</button>
+          <button id="leaveSeat">Atstāt sēdvietu</button>
+        </div>
+        <p id="winners"></p>
+      </aside>
+
+      <section class="tableWrap">
+        <div class="table" id="table">
+          <div id="tablePairs" class="pairs"></div>
+          <div class="status">
+            <span id="phase"></span>
+            <span id="turnInfo"></span>
+            <span id="deckCount"></span>
+            <span id="trump"></span>
+          </div>
         </div>
 
-        <!-- Sēdvietas ap apaļu galdu -->
-        <div class="seats">
-          <div class="seat s1"><div class="seatNick">—</div><button class="seatBtn" data-seat="0">Pievienoties</button></div>
-          <div class="seat s2"><div class="seatNick">—</div><button class="seatBtn" data-seat="1">Pievienoties</button></div>
-          <div class="seat s3"><div class="seatNick">—</div><button class="seatBtn" data-seat="2">Pievienoties</button></div>
-          <div class="seat s4"><div class="seatNick">—</div><button class="seatBtn" data-seat="3">Pievienoties</button></div>
-          <div class="seat s5"><div class="seatNick">—</div><button class="seatBtn" data-seat="4">Pievienoties</button></div>
-          <div class="seat s6"><div class="seatNick">—</div><button class="seatBtn" data-seat="5">Pievienoties</button></div>
-        </div>
-
-        <!-- Galds -->
-        <div class="tableWrap">
-          <div id="table" class="table"></div>
-        </div>
-
-        <!-- Roka -->
         <div class="handWrap">
+          <div class="handTitle">Tava roka (<span id="handCount">0</span>)</div>
           <div id="hand" class="hand"></div>
         </div>
 
-        <!-- Pogas -->
-        <div class="controls">
-          <button id="btnAttack">Uzbrukt</button>
-          <button id="btnDefend">Nosist</button>
-          <button id="btnTake">Paņemt</button>
-          <button id="btnEnd">Gājiens beigts</button>
+        <div class="buttons">
+          <button id="attackBtn">Uzbrukt</button>
+          <button id="addBtn">Piemest</button>
+          <button id="defendBtn">Nosist</button>
+          <button id="takeBtn">Paņemt</button>
+          <button id="endBtn">Gājiens beigts</button>
         </div>
 
         <div id="log" class="log"></div>
-      </div>
+      </section>
     </main>
   </div>
 
-  <div id="toast" class="toast"></div>
-
-  <script src="/socket.io/socket.io.js"></script>
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
   <script src="client.js"></script>
 </body>
 </html>
