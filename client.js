@@ -3,7 +3,7 @@
 
 // ================== IMPORTANT ==================
 // Ieliec šeit sava Node/Socket.IO servera HTTPS adresi (Render u.c.)
-const SERVER_URL = https://duraks-online.onrender.com; // <-- N O M A I N I !
+const SERVER_URL = 'https://duraks-online.onrender.com' // <-- N O M A I N I !
 // Ja serveris ir tieši šajā pašā originā (piem. lokāli), vari atstāt '' un lietot io() bez URL.
 // =================================================
 
