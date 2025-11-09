@@ -3,56 +3,79 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Duraks Online — Apaļais galds (Bugats)</title>
+  <title>Duraks Online — Bugats Edition</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <div class="app">
-    <aside class="side">
-      <h2>Duraks Online</h2>
-      <div class="row">
-        <label for="nick">Tavs niks</label>
-        <input id="nick" class="input" placeholder="BUGATS" />
-      </div>
+  <div id="app">
+    <aside class="panel">
+      <h1>Duraks Online</h1>
+
+      <label>Vārds</label>
+      <input id="nick" placeholder="BUGATS" value="BUGATS"/>
+
+      <label>Kava</label>
+      <select id="deckSel">
+        <option value="36">36 kārtis (6–A)</option>
+        <option value="52">52 kārtis (2–A)</option>
+      </select>
 
       <div class="row">
-        <button id="btnCreate" class="btn primary">Izveidot istabu</button>
+        <button id="btnCreate">Izveidot istabu</button>
+        <button id="btnStart" class="accent">Sākt spēli</button>
       </div>
 
-      <div class="row inline">
-        <input id="room" class="input" placeholder="Istabas kods" />
-        <button id="btnJoin" class="btn">Pievienoties</button>
-      </div>
+      <h3>Istabas</h3>
+      <div id="rooms"></div>
 
-      <h3>Žurnāls</h3>
-      <div id="log" class="log"></div>
+      <div class="hint">
+        <strong>Padoms:</strong> ja istabā esi viens, serveris piesēdinās BOT.
+      </div>
     </aside>
 
-    <main class="main">
-      <div class="hud">
-        <span class="badge">Istaba: <b id="roomLabel">—</b></span>
-        <span class="badge">Gājiens: <b id="turnLabel">—</b></span>
-      </div>
-
-      <!-- Apaļais galds -->
-      <div class="table">
-        <div id="seats" class="seats">
-          <!-- 6 vietas tiks ģenerētas no JS -->
+    <main>
+      <div class="lobby">
+        <div class="topbar">
+          <div>Istaba: <span id="roomId">—</span></div>
+          <div>Trumips: <span id="trump">—</span></div>
+          <div>Fāze: <span id="phase">—</span></div>
+          <div>Gājiens: <span id="turn">—</span></div>
         </div>
 
-        <div class="center-info">
-          <div>Galda centrs</div>
-          <div class="sub">Šeit vēlāk tiks liktas kārtis</div>
+        <!-- Sēdvietas ap apaļu galdu -->
+        <div class="seats">
+          <div class="seat s1"><div class="seatNick">—</div><button class="seatBtn" data-seat="0">Pievienoties</button></div>
+          <div class="seat s2"><div class="seatNick">—</div><button class="seatBtn" data-seat="1">Pievienoties</button></div>
+          <div class="seat s3"><div class="seatNick">—</div><button class="seatBtn" data-seat="2">Pievienoties</button></div>
+          <div class="seat s4"><div class="seatNick">—</div><button class="seatBtn" data-seat="3">Pievienoties</button></div>
+          <div class="seat s5"><div class="seatNick">—</div><button class="seatBtn" data-seat="4">Pievienoties</button></div>
+          <div class="seat s6"><div class="seatNick">—</div><button class="seatBtn" data-seat="5">Pievienoties</button></div>
         </div>
-      </div>
 
-      <div class="footer">
-        <button id="btnLeave" class="btn">Atstāt sēdvietu (demo)</button>
-        <div style="flex:1"></div>
-        <span class="badge">v1.0 (seating)</span>
+        <!-- Galds -->
+        <div class="tableWrap">
+          <div id="table" class="table"></div>
+        </div>
+
+        <!-- Roka -->
+        <div class="handWrap">
+          <div id="hand" class="hand"></div>
+        </div>
+
+        <!-- Pogas -->
+        <div class="controls">
+          <button id="btnAttack">Uzbrukt</button>
+          <button id="btnDefend">Nosist</button>
+          <button id="btnTake">Paņemt</button>
+          <button id="btnEnd">Gājiens beigts</button>
+        </div>
+
+        <div id="log" class="log"></div>
       </div>
     </main>
   </div>
+
+  <div id="toast" class="toast"></div>
 
   <script src="/socket.io/socket.io.js"></script>
   <script src="client.js"></script>
