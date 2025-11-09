@@ -1,10 +1,10 @@
 {
-  "name": "duraks-bugats-server",
-  "version": "1.2.5",
-  "main": "server.js",
-  "type": "commonjs",
+  "name": "duraks-online-bugats",
+  "version": "1.2.8",
+  "type": "module",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "dev": "NODE_ENV=development node server.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
