@@ -1,7 +1,7 @@
 {
-  "name": "duraks-online",
-  "version": "1.0.0",
-  "description": "Duraks Online — seating demo with one-seat-per-player rule",
+  "name": "duraks-online-mp",
+  "version": "2.0.0",
+  "private": true,
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
