@@ -1,252 +1,238 @@
-const socket = io();
+// client.js
+// front-end for Duraks Online — Bugats Edition
 
-const nickEl = document.getElementById('nick');
-const deckSel = document.getElementById('deckSel');
-const roomsEl = document.getElementById('rooms');
+const socket = io(); // same origin
+let currentRoom = null;
+let mySeatId = null;
+let state = { room:null, game:null };
+let selected = []; // selected cards from hand
+let hintsOn = true;
+let confirmOn = true;
 
-const btnCreate = document.getElementById('btnCreate');
-const btnStart = document.getElementById('btnStart');
+const $ = sel => document.querySelector(sel);
+const $$ = sel => Array.from(document.querySelectorAll(sel));
 
-const seatBtns = [...document.querySelectorAll('.seatBtn')];
-const seatNickEls = [...document.querySelectorAll('.seat .seatNick')];
+$('#toggle-hints').addEventListener('change', e => hintsOn = e.target.checked);
+$('#toggle-confirm').addEventListener('change', e => confirmOn = e.target.checked);
 
-const roomIdEl = document.getElementById('roomId');
-const trumpEl  = document.getElementById('trump');
-const phaseEl  = document.getElementById('phase');
-const turnEl   = document.getElementById('turn');
-
-const tableEl  = document.getElementById('table');
-const handEl   = document.getElementById('hand');
-
-const btnAttack = document.getElementById('btnAttack');
-const btnDefend = document.getElementById('btnDefend');
-const btnTake   = document.getElementById('btnTake');
-const btnEnd    = document.getElementById('btnEnd');
-
-const logEl = document.getElementById('log');
-const toastEl = document.getElementById('toast');
-
-let curRoom = null;
-let myPid   = null;
-
-let selectedHand = new Set(); // uzbrukumam
-let defendPairs  = [];        // [{ti, cardId}]
-
-/* ========== util ========== */
-function showToast(msg){
-  toastEl.textContent = msg;
-  toastEl.classList.add('show');
-  setTimeout(()=> toastEl.classList.remove('show'), 1200);
-}
-
-function colorClass(suit){
-  return (suit==='♥' || suit==='♦') ? 'red' : '';
-}
-
-function cardHtml(c){
-  return `<div class="card ${colorClass(c.s)}"><div class="small">${c.r}${c.s}</div>${c.r}</div>`;
-}
-/* ========== Lobby ========== */
-
-function refreshRooms(){
-  socket.emit('room:list', (res)=>{
-    if (!res.ok) return;
-    roomsEl.innerHTML = '';
-    for (const r of res.rooms){
-      const el = document.createElement('div');
-      el.className = 'roomItem';
-      el.innerHTML = `
-        <div><strong>${r.id}</strong> — ${r.seats}/6 — ${r.status}</div>
-        <button class="join">Pievienoties</button>
-      `;
-      el.querySelector('.join').onclick = ()=> joinRoom(r.id);
-      roomsEl.appendChild(el);
-    }
-  });
-}
-
-btnCreate.onclick = ()=>{
-  const deck36 = deckSel.value === '36';
-  socket.emit('room:create', {deck36}, (r)=>{
-    if (r.ok) joinRoom(r.id);
+$('#createRoom').onclick = () => {
+  socket.emit('room:create', null, resp => {
+    if (!resp?.ok) return toast(resp.error || 'Neizdevās izveidot');
+    currentRoom = resp.code;
+    $('#roomCode').textContent = 'Istaba: ' + currentRoom;
+    socket.emit('room:join', currentRoom, ()=>{});
   });
 };
 
-btnStart.onclick = ()=>{
-  socket.emit('game:start', (r)=>{
-    if (!r.ok) showToast(r.msg || 'Neizdevās sākt.');
+$('#joinRoom').onclick = () => {
+  const code = $('#joinCode').value.trim();
+  if (!code) return;
+  socket.emit('room:join', code, resp=>{
+    if (!resp?.ok) return toast(resp.error || 'Neizdevās pievienoties');
+    currentRoom = code;
+    $('#roomCode').textContent = 'Istaba: ' + currentRoom;
   });
 };
 
-function joinRoom(id){
-  socket.emit('room:join', {roomId:id}, (res)=>{
-    if(!res.ok){ showToast('Istaba nav pieejama.'); return; }
-    curRoom = res.room;
-    roomIdEl.textContent = curRoom.id;
-    renderSeats(curRoom);
-    pullState(); // lai dabūtu manu roku
-
-    // Auto-sēdināšana pirmajā brīvajā
-    const already = (curRoom.seats||[]).some(s=>s && s.pid===myPid);
-    if (!already) {
-      const free = (curRoom.seats||[]).findIndex(s=>!s);
-      if (free !== -1){
-        socket.emit('seat:join', { nick: (nickEl.value||'Spēlētājs').trim(), seat: free }, (r)=>{
-          if(!r.ok) showToast('Neizdevās sēdēt');
-          else { curRoom = r.room; renderSeats(curRoom); pullState(); }
-        });
-      }
-    }
+$('#startGame').onclick = () => {
+  if (!currentRoom) return toast('Nav istabas');
+  const deckSize = +$('#deckSel').value;
+  const solo = $('#solo').checked;
+  socket.emit('game:start', { roomCode: currentRoom, deckSize, solo }, resp=>{
+    if (!resp?.ok) toast(resp.error || 'Nevar startēt');
   });
+};
+
+$('#leaveSeat').onclick = () => {
+  if (!currentRoom || !mySeatId) return;
+  socket.emit('seat:leave', { roomCode: currentRoom }, ()=>{ mySeatId=null; });
+};
+
+function askConfirm(msg) {
+  return !confirmOn || confirm(msg);
 }
 
-seatBtns.forEach(b=>{
-  b.onclick = ()=>{
-    if (!curRoom) return;
-    const seat = +b.dataset.seat;
-    socket.emit('seat:join', {nick:(nickEl.value||'Spēlētājs').trim(), seat}, (r)=>{
-      if(!r.ok) showToast('Vieta aizņemta');
-      else { curRoom = r.room; renderSeats(curRoom); pullState(); }
-    });
-  };
+function toast(msg) {
+  const log = $('#log');
+  const p = document.createElement('div');
+  p.textContent = '• ' + msg;
+  log.prepend(p);
+}
+
+function showHint(kind, msg) {
+  if (!hintsOn) return;
+  toast(`[${kind}] ${msg}`);
+}
+
+// ===== render seats =====
+socket.on('seat:update', st => {
+  renderSeats(st.seats);
 });
 
-function renderSeats(st){
-  (st.seats||[]).forEach((s,i)=>{
-    seatNickEls[i].textContent = s? s.nick : '—';
-    seatBtns[i].disabled = !!s;
-  });
-}
-
-/* ========== Spēles stāvoklis ========== */
-
-socket.on('connect', ()=>{
-  myPid = socket.id;
-  refreshRooms();
-  pullState();
+socket.on('room:joined', code => {
+  currentRoom = code;
+  $('#roomCode').textContent = 'Istaba: ' + code;
 });
 
-socket.on('state', (pub)=>{
-  // “push” atjauninājums — vajag arī manu roku
-  curRoom = pub;
-  renderSeats(pub);
-  pullState(); // atjauno tekstus + roku + galdu
-});
-
-function pullState(){
-  socket.emit('hand:get', (r)=>{
-    if (!r.ok) return;
-    myPid = r.pid;
-    curRoom = r.room;
-    updateTop(curRoom);
-    renderTable(curRoom);
-    renderHand(curRoom.myHand || []);
-    updateButtons(curRoom);
-  });
-}
-
-function updateTop(st){
-  roomIdEl.textContent = st.id || '—';
-  phaseEl.textContent = st.status || '—';
-  trumpEl.textContent = st.trump ? `${st.trump.r}${st.trump.s}` : '—';
-  turnEl.textContent  = st.attacker ? (st.attacker===myPid?'Tu (uzbrūc)': st.defender===myPid?'Tu (aizstāvi)':'Pretinieks') : '—';
-}
-
-function renderTable(st){
-  tableEl.innerHTML = '';
-  (st.table||[]).forEach((p,i)=>{
-    const el = document.createElement('div');
-    el.className = 'pair';
-    el.innerHTML = `<div class="base">${p.a? cardHtml(p.a):''}</div>${p.d? `<div class="cover">${cardHtml(p.d)}</div>`:''}`;
-    el.onclick = ()=>{
-      // aizstāvis izvēlas mērķi (ti)
-      if (st.defender === myPid && p.a && !p.d){
-        // iezīmē logā, nākamais klikšķis uz rokas kartes saliks pāri
-        defendPairs = defendPairs.filter(x=>x.ti!==i);
-        defendPairs.push({ti:i, cardId:null});
-        showToast('Izvēlies nositamo kārti no rokas');
-      }
+function renderSeats(seats) {
+  const wrap = $('#seats');
+  wrap.innerHTML = '';
+  Object.values(seats).forEach(s => {
+    const b = document.createElement('button');
+    b.className = 'seat';
+    b.disabled = !!s.busy || (mySeatId && mySeatId !== s.id);
+    b.textContent = `${s.name} ${s.busy ? ' (aizņemta)' : ''} ${s.isBot?'[BOT]':''}`;
+    b.onclick = () => {
+      if (mySeatId && mySeatId !== s.id) return toast('Tu jau sēdi!');
+      socket.emit('seat:join', { roomCode: currentRoom, seatId: s.id }, resp=>{
+        if (resp?.ok) {
+          mySeatId = s.id;
+          showHint('seat', `Ieņemta vieta ${s.id}`);
+        } else toast(resp?.error || 'Neizdevās');
+      });
     };
-    tableEl.appendChild(el);
+    wrap.appendChild(b);
   });
 }
 
-function renderHand(hand){
-  handEl.innerHTML='';
-  selectedHand.clear();
-  hand.forEach(c=>{
-    const d = document.createElement('div');
-    d.className = `card ${colorClass(c.s)}`;
-    d.innerHTML = `<div class="small">${c.r}${c.s}</div>${c.r}`;
-    d.dataset.id = c.id;
-    d.onclick = ()=>{
-      const st = curRoom;
-      if (st.defender === myPid){
-        // aizstāvis – ja ir izvēlēts mērķis, mēģinām salikt pāri
-        const target = defendPairs.find(x=>x.cardId===null);
-        if (target){
-          target.cardId = c.id;
-          // tūlīt sūtam aizsardzību
-          socket.emit('defend', {pairs:defendPairs.filter(x=>x.cardId)}, (r)=>{
-            if (!r.ok) showToast(r.msg || 'Neizdevās nosist');
-            defendPairs = defendPairs.filter(x=>!x.cardId); // iztīrām ieliktos
-            pullState();
-          });
-          return;
-        }
-      }
-      // citādi – uzbrucēja atlase
-      if (selectedHand.has(c.id)) { selectedHand.delete(c.id); d.classList.remove('sel'); }
-      else { selectedHand.add(c.id); d.classList.add('sel'); }
-    };
-    handEl.appendChild(d);
+// ====== full state ======
+socket.on('state', s => {
+  state = s;
+  renderAll();
+});
+
+socket.on('public', pg => {
+  // ignore; we receive full personal 'state' anyway
+});
+
+socket.on('game:winnerProgress', list => {
+  $('#winners').textContent = 'Uzvarējušo secība: ' + list.join(' → ');
+});
+socket.on('game:finish', list => {
+  $('#winners').textContent = 'Spēle beigusies! ' + list.join(' → ');
+});
+
+// ====== RENDER ======
+function renderAll() {
+  const g = state.game;
+  const r = state.room;
+
+  // seats might update from "state" too
+  if (r) renderSeats(r.seats);
+
+  if (!g) {
+    $('#phase').textContent = '—';
+    $('#turnInfo').textContent = '';
+    $('#deckCount').textContent = '';
+    $('#trump').textContent = '';
+    $('#hand').innerHTML = '';
+    $('#tablePairs').innerHTML = '';
+    $('#handCount').textContent = '0';
+    return;
+  }
+
+  $('#phase').textContent = g.turnPhase === 'attack' ? 'Fāze: uzbrukums' : 'Fāze: aizstāvēšanās';
+  $('#turnInfo').textContent = `Uzbrucējs sēdvieta ${g.attackerSeat} · Aizstāvis sēdvieta ${g.defenderSeat}`;
+  $('#deckCount').textContent = `Kavā: ${g.deckCount}`;
+  $('#trump').textContent = `Trumps: ${g.trumpSuit} (${g.trumpCard.rank}${g.trumpCard.suit})`;
+
+  // table
+  const pairs = $('#tablePairs');
+  pairs.innerHTML = '';
+  g.table.forEach((p, idx) => {
+    const div = document.createElement('div');
+    div.className = 'pair';
+    const a = cardEl(p.attack);
+    a.classList.add('onTable');
+    const d = p.defense ? cardEl(p.defense) : blankEl();
+    div.append(a, d);
+    pairs.appendChild(div);
+  });
+
+  // hand
+  const hand = $('#hand');
+  hand.innerHTML = '';
+  const H = g.yourHand || [];
+  $('#handCount').textContent = H.length;
+  H.forEach(c => {
+    const el = cardEl(c);
+    const sel = selected.find(x => x.rank===c.rank && x.suit===c.suit);
+    if (sel) el.classList.add('selected');
+    el.onclick = () => toggleSelect(c);
+    hand.appendChild(el);
   });
 }
 
-function updateButtons(st){
-  const iAmAtt = st.attacker === myPid;
-  const iAmDef = st.defender === myPid;
-
-  btnAttack.disabled = !iAmAtt;
-  btnDefend.disabled = !iAmDef;
-  btnTake.disabled   = !iAmDef;
-  btnEnd.disabled    = !(iAmAtt || allDefendedLocal(st));
+function toggleSelect(c) {
+  const i = selected.findIndex(x => x.rank===c.rank && x.suit===c.suit);
+  if (i>-1) selected.splice(i,1);
+  else selected.push(c);
+  renderAll();
 }
 
-function allDefendedLocal(st){
-  return (st.table||[]).length && (st.table||[]).every(p => !!p.d);
+function cardEl(c) {
+  const d = document.createElement('div');
+  d.className = 'card';
+  d.dataset.suit = c.suit;
+  d.innerHTML = `<div class="r">${c.rank}</div><div class="s">${c.suit}</div>`;
+  return d;
+}
+function blankEl() {
+  const d = document.createElement('div');
+  d.className = 'card blank';
+  d.innerHTML = '—';
+  return d;
 }
 
-/* ========== Pogas ========== */
-
-btnAttack.onclick = ()=>{
-  if (!selectedHand.size) return showToast('Iezīmē kārtis uzbrukumam');
-  socket.emit('attack', {cards:[...selectedHand]}, (r)=>{
-    if (!r.ok) showToast(r.msg || 'Neizdevās uzbrukt');
-    selectedHand.clear();
-    pullState();
+// ===== Buttons =====
+$('#attackBtn').onclick = () => {
+  if (!currentRoom) return;
+  if (!selected.length) return toast('Atlasiet uzbrukuma kārtis');
+  if (!askConfirm('Sākt uzbrukumu ar atlasītajām kārtīm?')) return;
+  socket.emit('attack', { roomCode: currentRoom, cards: selected }, resp=>{
+    if (!resp?.ok) toast('Nav tavs uzbrukums vai neatļautas kārtis');
+    selected = [];
   });
 };
 
-btnDefend.onclick = ()=>{
-  if (!defendPairs.length) return showToast('Uzklikšķini uz mērķa kartes uz galda, pēc tam uz rokas kārts');
-  const ready = defendPairs.filter(x=>x.cardId);
-  if (!ready.length) return showToast('Izvēlies nositamo kārti');
-  socket.emit('defend', {pairs:ready}, (r)=>{
-    if (!r.ok) showToast(r.msg || 'Neizdevās nosist');
-    defendPairs = defendPairs.filter(x=>!x.cardId);
-    pullState();
+$('#addBtn').onclick = () => {
+  if (!currentRoom) return;
+  if (!selected.length) return toast('Atlasiet kārtis piemestšanai');
+  if (!askConfirm('Piemest atlasītās kārtis?')) return;
+  socket.emit('attacker:add', { roomCode: currentRoom, cards: selected }, resp=>{
+    if (!resp?.ok) toast('Nevar piemest šīs kārtis');
+    selected = [];
   });
 };
 
-btnTake.onclick = ()=>{
-  socket.emit('defender:take', (r)=>{ if (!r.ok) showToast('Neizdevās paņemt'); pullState(); });
+$('#defendBtn').onclick = () => {
+  if (!currentRoom) return;
+  // aizstāvēšanās: izvēlēties 1 kārti un pāri (ņemam pirmo neaizsargāto pāri)
+  if (selected.length !== 1) return toast('Aizsardzībai izvēlieties 1 kārti');
+  if (!askConfirm('Nosist ar atlasīto kārti?')) return;
+
+  // atrodam pirmo pāri bez aizsardzības un sūtam
+  const g = state.game; if (!g) return;
+  const pairIndex = g.table.findIndex(p => !p.defense);
+  if (pairIndex === -1) return toast('Nav ko sist');
+  socket.emit('defend', { roomCode: currentRoom, pairIndex, card: selected[0] }, resp=>{
+    if (!resp?.ok) toast('Ar šo kārti nevar nosist');
+    selected = [];
+  });
 };
 
-btnEnd.onclick = ()=>{
-  socket.emit('turn:end', (r)=>{ if (!r.ok) showToast(r.msg || 'Neizdevās beigt gājienu'); pullState(); });
+$('#takeBtn').onclick = () => {
+  if (!currentRoom) return;
+  if (!askConfirm('Paņemt visas galda kārtis?')) return;
+  socket.emit('take', { roomCode: currentRoom }, resp=>{
+    if (!resp?.ok) toast('Paņemšana nav pieejama');
+  });
 };
 
-/* ======== sākumā ======== */
-refreshRooms();
-setInterval(refreshRooms, 4000);
+$('#endBtn').onclick = () => {
+  if (!currentRoom) return;
+  if (!askConfirm('Beigt gājienu?')) return;
+  socket.emit('endTurn', { roomCode: currentRoom }, resp=>{
+    if (!resp?.ok) toast('Nevar beigt (ir neaizsistas kārtis?)');
+  });
+};
