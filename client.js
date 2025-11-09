@@ -1,6 +1,5 @@
-/* Duraks Online — klients (v1.2.6) */
+/* Duraks Online — klients (v1.2.7) */
 (() => {
-  // DOM atlasītāji ar drošības gardiem
   const $ = (id) => document.getElementById(id);
   const el = {
     log: $("log"),
@@ -38,72 +37,59 @@
 
   let selfId = null;
   let state = null;
-  let selected = new Set();           // izvēlēto kāršu indeksu set (manā rokā)
-  let selectedPairIdx = null;         // aizstāvēšanās: izvēlētais pāris uz galda
+  let selected = new Set();
+  let selectedPairIdx = null;
 
-  // util
-  function log(msg){ if(!el.log) return; const p=document.createElement("div"); p.textContent = msg; el.log.appendChild(p); el.log.scrollTop = el.log.scrollHeight; }
-  function clear(node){ if(node) node.innerHTML=""; }
-  function suitToChar(s){ return s==="H" ? "♥" : s==="D" ? "♦" : s==="C" ? "♣" : s==="S" ? "♠" : s; }
-  function rankToLabel(r){ return {11:"J",12:"Q",13:"K",14:"A"}[r] || String(r); }
+  const log = (m)=>{ if(!el.log) return; const p=document.createElement("div"); p.textContent=m; el.log.appendChild(p); el.log.scrollTop=el.log.scrollHeight; };
+  const clear = (n)=>{ if(n) n.innerHTML=""; };
+
+  const suitToChar = (s)=> s==="H"?"♥":s==="D"?"♦":s==="C"?"♣":s==="S"?"♠":s;
+  const rankToLabel = (r)=> ({11:"J",12:"Q",13:"K",14:"A"}[r]||String(r));
+
   function cardNode(card, opts={}){
     const d=document.createElement("div");
-    d.className = "card"+(opts.back?" back":"")+(opts.defend?" defend":"");
+    d.className="card"+(opts.back?" back":"")+(opts.defend?" defend":"");
     if(!opts.back){
-      const rank = document.createElement("div");
-      const suit = document.createElement("div");
-      rank.className = "rank"+((card.suit==="H"||card.suit==="D")?" red":"");
-      suit.className = "suit"+((card.suit==="H"||card.suit==="D")?" red":"");
-      rank.textContent = rankToLabel(card.rank);
-      suit.textContent = suitToChar(card.suit);
-      d.appendChild(rank); d.appendChild(suit);
+      const r=document.createElement("div"); r.className="rank"+((card.suit==="H"||card.suit==="D")?" red":"");
+      const s=document.createElement("div"); s.className="suit"+((card.suit==="H"||card.suit==="D")?" red":"");
+      r.textContent=rankToLabel(card.rank); s.textContent=suitToChar(card.suit);
+      d.appendChild(r); d.appendChild(s);
     }
     return d;
   }
 
-  // izvēles pārvalde
-  function toggleSelect(idx){
-    if(selected.has(idx)) selected.delete(idx); else selected.add(idx);
-    renderHand(state ? getMyHand(state) : []);
-  }
-
-  function pickPair(pairIdx){
-    selectedPairIdx = (selectedPairIdx===pairIdx? null : pairIdx);
-    renderStack(state?.stack || []);
-  }
-
-  // state helpers
   function getMyHand(st){
     if(!st) return [];
-    if(st.hands && selfId && st.hands[selfId]) return st.hands[selfId];
-    if(st.meId && st.players && st.players[st.meId]) return st.players[st.meId].hand || [];
-    if(st.me && st.me.hand) return st.me.hand;
+    if(st.hands && st.meId && st.hands[st.meId]) return st.hands[st.meId];
     return [];
   }
+  const myTurn = (st)=> st && st.turnId===selfId;
 
-  function myTurn(st){
-    if(!st) return false;
-    return st.turnId === selfId;
+  function toggleSelect(idx){
+    if(selected.has(idx)) selected.delete(idx); else selected.add(idx);
+    renderHand(getMyHand(state));
+  }
+  function pickPair(pairIdx){
+    selectedPairIdx = (selectedPairIdx===pairIdx? null : pairIdx);
+    renderStack(state?.stack||[]);
   }
 
-  // render
   function renderHUD(st){
-    if(!st) return;
-    el.roomLabel.textContent = st.room || "—";
+    el.roomLabel.textContent = st.room||"—";
     el.trumpLabel.textContent = st.trump ? suitToChar(st.trump) : "—";
     el.stockCount.textContent = (st.stockCount ?? "—");
     el.phase.textContent = st.phase || "—";
-    el.turnLabel.textContent = "Gājiens: " + (myTurn(st) ? "Tu" : "Pretinieks");
+    el.turnLabel.textContent = "Gājiens: " + (myTurn(st)?"Tu":"Pretinieks");
     el.yourTurnBtn.disabled = !myTurn(st);
   }
 
   function renderHand(cards){
     clear(el.meHand);
     el.meCount.textContent = cards.length;
-    cards.forEach((c, i) => {
+    cards.forEach((c,i)=>{
       const d = cardNode(c);
       if(selected.has(i)) d.classList.add("selected");
-      d.addEventListener("click", () => toggleSelect(i));
+      d.addEventListener("click", ()=>toggleSelect(i));
       el.meHand.appendChild(d);
     });
   }
@@ -111,130 +97,116 @@
   function renderOpp(count){
     clear(el.oppHand);
     el.oppCount.textContent = count;
-    for(let i=0;i<count;i++){
-      const d = cardNode(null, {back:true});
-      el.oppHand.appendChild(d);
-    }
+    for(let i=0;i<count;i++) el.oppHand.appendChild(cardNode(null,{back:true}));
   }
 
   function renderStack(pairs){
     clear(el.stack);
-    pairs.forEach((pair, idx) => {
-      const slot = document.createElement("div");
-      slot.className = "pair";
-      // uzbruktā
-      const atk = cardNode(pair.attack);
-      atk.title = "Uzbrukuma kārts";
-      slot.appendChild(atk);
-      // aizstāvēšanās
+    pairs.forEach((pair, idx)=>{
+      const slot=document.createElement("div"); slot.className="pair";
+      const atk=cardNode(pair.attack); atk.title="Uzbrukums"; slot.appendChild(atk);
       if(pair.defend){
-        const def = cardNode(pair.defend, {defend:true});
-        def.title = "Aizsardzības kārts";
-        slot.appendChild(def);
-      } else {
-        // ļauj aizstāvim atzīmēt pāri, kuru grib sist
-        if(state && state.phase==="defend" && state.defenderId===selfId){
-          slot.style.outline = (selectedPairIdx===idx) ? "2px solid var(--accent)" : "1px dashed #35527e";
-          slot.style.borderRadius = "12px";
-          slot.addEventListener("click", ()=> pickPair(idx));
-        }
+        const def=cardNode(pair.defend,{defend:true}); def.title="Aizsardzība"; slot.appendChild(def);
+      }else if(state && state.phase==="defend" && state.defenderId===selfId){
+        // iezīmē izvēli, ja esi aizstāvis
+        slot.style.outline = (selectedPairIdx===idx) ? "2px solid var(--accent)" : "1px dashed #35527e";
+        slot.style.borderRadius = "12px";
+        slot.addEventListener("click", ()=>pickPair(idx));
       }
       el.stack.appendChild(slot);
     });
   }
 
+  function canEndTrick(st){
+    if(!st) return false;
+    const allDefended = (st.stack||[]).length>0 && (st.stack||[]).every(p=>p.defend);
+    return allDefended && st.turnId===st.attackerId; // pēc noteikumiem beidz uzbrucējs
+  }
+
   function renderAll(st){
     renderHUD(st);
     renderHand(getMyHand(st));
-    const oppCount = (st.opponent && st.opponent.count) || (st.counts && st.counts.opponent) || st.oppCount || 0;
+    const oppCount = (st.opponent && st.opponent.count) || 0;
     renderOpp(oppCount);
-    renderStack(st.stack || []);
-    el.hint.textContent = (st.phase==="defend")
+    renderStack(st.stack||[]);
+
+    // pogu stāvokļi
+    const isAttack = st.phase==="attack" && st.turnId===selfId;
+    const isDefendMine = st.phase==="defend" && st.defenderId===selfId;
+    el.btnAttack.textContent = isDefendMine ? "Aizstāvēties" : "Uzbrukt";
+    el.btnEnd.disabled = !canEndTrick(st);
+
+    el.hint.textContent = isDefendMine
       ? "Aizstāvi pārus: izvēlies pāri metienā un vienu savu kārti, kas to sit. Vai 'Paņemt'."
       : "Uzbrukums: izvēlies vienu vai vairākas savas kārtis (pēc esošo rangu) un spied 'Uzbrukt'.";
   }
 
-  // sūtītāji
+  // ===== Sūtītāji
   function emitChat(){
-    const msg = el.chatMsg.value.trim();
-    if(!msg) return;
-    socket.emit("chat", msg);
-    el.chatMsg.value = "";
+    const msg=el.chatMsg.value.trim(); if(!msg) return;
+    socket.emit("chat", msg); el.chatMsg.value="";
   }
-
   function createRoom(){
-    const nick = el.nick.value.trim() || "Viesis";
-    const size = parseInt(el.deckSize.value, 10) || 36;
-    const solo = !!el.soloBot.checked;
-    socket.emit("createRoom", { nick, deckSize:size, solo });
+    const nick=el.nick.value.trim()||"Viesis";
+    const size=+el.deckSize.value||36;
+    const solo=!!el.soloBot.checked;
+    socket.emit("createRoom",{nick,deckSize:size,solo});
   }
-
   function joinRoom(){
-    const nick = el.nick.value.trim() || "Viesis";
-    const code = el.roomInput.value.trim().toUpperCase();
+    const nick=el.nick.value.trim()||"Viesis";
+    const code=el.roomInput.value.trim().toUpperCase();
     if(!code) return log("Ievadi istabas kodu.");
-    socket.emit("joinRoom", { nick, room:code });
+    socket.emit("joinRoom",{nick,room:code});
   }
 
   function sendAttack(){
     if(!state) return;
+    const hand=getMyHand(state);
     if(state.phase!=="attack" || state.turnId!==selfId) return log("Nav uzbrukuma gājiens.");
-    const hand = getMyHand(state);
     if(selected.size===0) return log("Izvēlies vismaz vienu kārti.");
-    const cards = [...selected].map(i=>hand[i]);
-    socket.emit("attack", { cards });
+    const cards=[...selected].map(i=>hand[i]);
+    socket.emit("attack",{cards});
     selected.clear(); selectedPairIdx=null;
   }
 
   function sendDefend(){
     if(!state) return;
+    const hand=getMyHand(state);
     if(state.phase!=="defend" || state.defenderId!==selfId) return log("Nav aizsardzības gājiens.");
     if(selectedPairIdx==null) return log("Izvēlies pāri metienā.");
-    const hand = getMyHand(state);
     if(selected.size!==1) return log("Izvēlies vienu savu kārti aizsardzībai.");
     const card = hand[[...selected][0]];
-    socket.emit("defend", { pairIndex:selectedPairIdx, card });
+    socket.emit("defend",{pairIndex:selectedPairIdx,card});
     selected.clear(); selectedPairIdx=null;
   }
 
-  function endTrick(){
-    socket.emit("endTrick"); // aizstāvis aizsargājies, uzbrucējs beidz metienu
-  }
+  function endTrick(){ socket.emit("endTrick"); }
+  function takeCards(){ socket.emit("take"); selected.clear(); selectedPairIdx=null; }
+  function passAdd(){ socket.emit("passAdd"); }
 
-  function takeCards(){
-    socket.emit("take");
-    selected.clear(); selectedPairIdx=null;
-  }
-
-  function passAdd(){
-    socket.emit("passAdd"); // uzbrucējs nepapildina, vai skatītājs nepieliek (neaizmest)
-  }
-
-  // UI eventi
+  // UI
   el.chatSend?.addEventListener("click", emitChat);
   el.btnCreate?.addEventListener("click", createRoom);
   el.btnJoin?.addEventListener("click", joinRoom);
 
-  el.btnAttack?.addEventListener("click", () => {
-    if(state?.phase==="defend") return sendDefend();
+  el.btnAttack?.addEventListener("click", ()=>{
+    if(state?.phase==="defend" && state.defenderId===selfId) return sendDefend();
     return sendAttack();
   });
   el.btnEnd?.addEventListener("click", endTrick);
   el.btnTake?.addEventListener("click", takeCards);
   el.btnPass?.addEventListener("click", passAdd);
 
-  // socket notikumi
-  socket.on("connect", () => { selfId = socket.id; log("Savienots ar serveri."); });
-  socket.on("disconnect", () => log("Atvienots no servera."));
-  socket.on("errorMsg", (m)=> log("Kļūda: "+m));
-  socket.on("info", (m)=> log(m));
-  socket.on("room", (code)=> { el.roomInput.value = code; el.roomLabel.textContent = code; });
-  socket.on("chat", (m)=> log("💬 "+m));
+  // Socket
+  socket.on("connect",()=>{ selfId=socket.id; log("Savienots ar serveri."); });
+  socket.on("disconnect",()=>log("Atvienots no servera."));
+  socket.on("errorMsg",(m)=>log("Kļūda: "+m));
+  socket.on("info",(m)=>log(m));
+  socket.on("room",(code)=>{ el.roomInput.value=code; el.roomLabel.textContent=code; });
+  socket.on("chat",(m)=>log("💬 "+m));
 
-  socket.on("state", (st) => {
-    state = st;
-    if(!selfId && st.meId) selfId = st.meId;
+  socket.on("state",(st)=>{
+    state=st; if(!selfId && st.meId) selfId=st.meId;
     renderAll(st);
   });
-
 })();
