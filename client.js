@@ -1,7 +1,21 @@
 // client.js
 // front-end for Duraks Online — Bugats Edition
 
-const socket = io(); // same origin
+// ================== IMPORTANT ==================
+// Ieliec šeit sava Node/Socket.IO servera HTTPS adresi (Render u.c.)
+const SERVER_URL = 'https://bugats-duraks-server.onrender.com'; // <-- N O M A I N I !
+// Ja serveris ir tieši šajā pašā originā (piem. lokāli), vari atstāt '' un lietot io() bez URL.
+// =================================================
+
+const socket = SERVER_URL
+  ? io(SERVER_URL, { transports: ['websocket', 'polling'], reconnection: true })
+  : io();
+
+// Vienkārša konekcijas diagnostika
+socket.on('connect', () => toast('Savienots ar serveri ✓ (' + socket.id + ')'));
+socket.on('connect_error', (e) => toast('Savienojuma kļūda: ' + (e?.message || e)));
+socket.on('disconnect', (r) => toast('Atvienots: ' + r));
+
 let currentRoom = null;
 let mySeatId = null;
 let state = { room:null, game:null };
@@ -17,7 +31,7 @@ $('#toggle-confirm').addEventListener('change', e => confirmOn = e.target.checke
 
 $('#createRoom').onclick = () => {
   socket.emit('room:create', null, resp => {
-    if (!resp?.ok) return toast(resp.error || 'Neizdevās izveidot');
+    if (!resp?.ok) return toast(resp?.error || 'Neizdevās izveidot istabu');
     currentRoom = resp.code;
     $('#roomCode').textContent = 'Istaba: ' + currentRoom;
     socket.emit('room:join', currentRoom, ()=>{});
@@ -117,7 +131,6 @@ function renderAll() {
   const g = state.game;
   const r = state.room;
 
-  // seats might update from "state" too
   if (r) renderSeats(r.seats);
 
   if (!g) {
@@ -136,7 +149,6 @@ function renderAll() {
   $('#deckCount').textContent = `Kavā: ${g.deckCount}`;
   $('#trump').textContent = `Trumps: ${g.trumpSuit} (${g.trumpCard.rank}${g.trumpCard.suit})`;
 
-  // table
   const pairs = $('#tablePairs');
   pairs.innerHTML = '';
   g.table.forEach((p, idx) => {
@@ -149,7 +161,6 @@ function renderAll() {
     pairs.appendChild(div);
   });
 
-  // hand
   const hand = $('#hand');
   hand.innerHTML = '';
   const H = g.yourHand || [];
@@ -207,11 +218,9 @@ $('#addBtn').onclick = () => {
 
 $('#defendBtn').onclick = () => {
   if (!currentRoom) return;
-  // aizstāvēšanās: izvēlēties 1 kārti un pāri (ņemam pirmo neaizsargāto pāri)
   if (selected.length !== 1) return toast('Aizsardzībai izvēlieties 1 kārti');
   if (!askConfirm('Nosist ar atlasīto kārti?')) return;
 
-  // atrodam pirmo pāri bez aizsardzības un sūtam
   const g = state.game; if (!g) return;
   const pairIndex = g.table.findIndex(p => !p.defense);
   if (pairIndex === -1) return toast('Nav ko sist');
