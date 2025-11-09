@@ -1,89 +1,60 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="lv">
 <head>
-  <meta charset="UTF-8" />
+  <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Duraks Online — Bugats Edition</title>
+  <title>Duraks Online — Apaļais galds (Bugats)</title>
   <link rel="stylesheet" href="style.css" />
-  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
 </head>
 <body>
   <div class="app">
     <aside class="side">
-      <h3>Duraks Online</h3>
-
+      <h2>Duraks Online</h2>
       <div class="row">
-        <input id="nick" class="input" placeholder="Tavs niks" />
-      </div>
-
-      <div class="row">
-        <select id="deckSize" class="input">
-          <option value="36">36</option>
-          <option value="52">52</option>
-        </select>
-      </div>
-
-      <div class="row">
-        <label class="chk"><input type="checkbox" id="solo" /> Solo režīms (BOT)</label>
+        <label for="nick">Tavs niks</label>
+        <input id="nick" class="input" placeholder="BUGATS" />
       </div>
 
       <div class="row">
         <button id="btnCreate" class="btn primary">Izveidot istabu</button>
       </div>
 
-      <div class="row">
+      <div class="row inline">
         <input id="room" class="input" placeholder="Istabas kods" />
         <button id="btnJoin" class="btn">Pievienoties</button>
       </div>
 
-      <h4>Žurnāls</h4>
+      <h3>Žurnāls</h3>
       <div id="log" class="log"></div>
-
-      <h4>Čats</h4>
-      <div class="chat">
-        <input id="chatMsg" class="input" placeholder="Ziņa…" />
-        <button id="chatSend" class="btn">Sūtīt</button>
-      </div>
     </aside>
 
     <main class="main">
       <div class="hud">
-        <div>
-          <span class="badge">Istaba: <b id="roomLabel">—</b></span>
-          <span class="badge">Trumpis: <b id="trumpLabel">—</b></span>
-          <span class="badge">Kavā: <b id="stockCount">—</b></span>
-          <span class="badge">Fāze: <b id="phase">—</b></span>
-          <span class="badge">Gājiens: <b id="turnLabel">—</b></span>
+        <span class="badge">Istaba: <b id="roomLabel">—</b></span>
+        <span class="badge">Gājiens: <b id="turnLabel">—</b></span>
+      </div>
+
+      <!-- Apaļais galds -->
+      <div class="table">
+        <div id="seats" class="seats">
+          <!-- 6 vietas tiks ģenerētas no JS -->
+        </div>
+
+        <div class="center-info">
+          <div>Galda centrs</div>
+          <div class="sub">Šeit vēlāk tiks liktas kārtis</div>
         </div>
       </div>
 
-      <div class="table circle">
-        <div id="seat0" class="seat"><div class="seatNick">—</div><div class="seatCount">(0)</div></div>
-        <div id="seat1" class="seat"><div class="seatNick">—</div><div class="seatCount">(0)</div></div>
-        <div id="seat2" class="seat"><div class="seatNick">—</div><div class="seatCount">(0)</div></div>
-        <div id="seat3" class="seat"><div class="seatNick">—</div><div class="seatCount">(0)</div></div>
-        <div id="seat4" class="seat"><div class="seatNick">—</div><div class="seatCount">(0)</div></div>
-        <div id="seat5" class="seat"><div class="seatNick">—</div><div class="seatCount">(0)</div></div>
-
-        <div id="pile" class="pile"></div> <!-- galda vidus -->
-      </div>
-
-      <div class="handWrap">
-        <div class="zone-title">Tava roka (<span id="meCount">0</span>)</div>
-        <div id="meHand" class="hand"></div>
-      </div>
-
       <div class="footer">
-        <button id="btnAttack" class="btn primary">Uzbrukt</button>
-        <button id="btnEnd" class="btn">Gājiens beigts</button>
-        <button id="btnTake" class="btn">Paņemt</button>
-        <button id="btnPass" class="btn">Neaizmest</button>
+        <button id="btnLeave" class="btn">Atstāt sēdvietu (demo)</button>
         <div style="flex:1"></div>
-        <div class="badge">v1.2.9</div>
+        <span class="badge">v1.0 (seating)</span>
       </div>
     </main>
   </div>
 
+  <script src="/socket.io/socket.io.js"></script>
   <script src="client.js"></script>
 </body>
 </html>
