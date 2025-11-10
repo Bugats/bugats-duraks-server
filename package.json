@@ -2,8 +2,7 @@
   "name": "duraks-online",
   "version": "1.0.0",
   "private": true,
-  "description": "Duraks Online server (CommonJS)",
-  "main": "server.js",
+  "type": "module",
   "scripts": {
     "start": "node server.js"
   },
