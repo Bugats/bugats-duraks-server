@@ -1,61 +1,81 @@
 :root{
-  --bg:#f6fbff;
-  --panel:#ffffff;
-  --ink:#0d2233;
-  --muted:#7a8a99;
-  --brand:#1a9cff;
-  --ok:#23c26b;
-  --warn:#ffb000;
-  --err:#ff5470;
-  --ring: rgba(26,156,255,.35);
-  font-family: Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;
+  --bg:#f4f8ff;
+  --card:#ffffff;
+  --text:#0d1b2a;
+  --muted:#6b7b8a;
+  --brand:#1677ff;
+  --brand-2:#24c8a8;
+  --warn:#ff9c6e;
+  --danger:#ff4d4f;
+  --ring:rgba(22,119,255,0.25);
 }
+
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink)}
-.topbar{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;background:#e9f6ff;border-bottom:1px solid #d5ecff}
-.topbar h1{margin:0;font-weight:800;letter-spacing:.2px}
-.dot{width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:8px;vertical-align:middle}
-.dot--red{background:var(--err)}
-.dot--green{background:var(--ok)}
-.layout{padding:18px}
-.columns{display:grid;grid-template-columns:320px 1fr;gap:18px;margin-top:12px}
-.panel{background:var(--panel);border:1px solid #e7eef5;border-radius:14px;padding:14px}
-.panel--main{min-height:520px}
-.controls .ctrl-row{display:flex;gap:10px;align-items:center;margin-bottom:10px;flex-wrap:wrap}
-.input,.select{padding:9px 10px;border:1px solid #cfe1ef;border-radius:10px;outline:none}
-.input--code{width:140px;text-transform:uppercase;letter-spacing:1px}
-.chk{display:inline-flex;gap:8px;align-items:center}
-.btn{padding:9px 14px;border-radius:10px;border:1px solid #cfe1ef;background:#fff;cursor:pointer}
-.btn:hover{box-shadow:0 0 0 3px var(--ring)}
-.btn--primary{background:var(--brand);border-color:var(--brand);color:#fff}
-.btn--success{background:var(--ok);border-color:var(--ok);color:#fff}
-.btn--warning{background:var(--warn);border-color:var(--warn);color:#222}
-.btn--danger{background:var(--err);border-color:var(--err);color:#fff}
-.btn--ghost{background:#fff}
-.btn--sm{padding:6px 10px;font-size:13px}
+html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:Inter,system-ui,Segoe UI,Arial,sans-serif}
+a{color:var(--brand)}
+h1,h2,h3{margin:0}
 
-.seats{display:grid;gap:10px}
-.seat{display:flex;justify-content:space-between;align-items:center;border:1px dashed #cfe1ef;padding:10px;border-radius:10px}
-.seat__title{font-weight:600}
+.app{max-width:1200px;margin:0 auto;padding:16px}
 
-.status{display:flex;justify-content:space-between;gap:10px;padding:8px 10px;margin-bottom:10px;background:#f2f8ff;border:1px solid #dbeeff;border-radius:10px}
-.sep{color:#a0b1c2;margin:0 6px}
+.bar{
+  display:flex;justify-content:space-between;align-items:center;
+  margin-bottom:12px
+}
+.dot{font-size:12px;color:var(--muted)}
+.dot::before{
+  content:"●";margin-right:6px;color:#bbb
+}
+.dot.on::before{color:#22c55e}
+.dot.off::before{color:#ef4444}
 
-.table{position:relative;border:1px solid #e7eef5;border-radius:12px;background:#fbfdff;padding:12px;min-height:220px}
-.battlefield{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px}
-.pair{display:grid;grid-template-columns:1fr 1fr;gap:6px;border:1px solid #dbe7f3;border-radius:10px;padding:8px;background:#fff}
-.pair__a,.pair__d{border:1px solid #e8eef6;border-radius:8px;padding:8px;text-align:center}
-.pair__a--target{outline:2px dashed var(--brand)}
+.top-controls{
+  display:flex;gap:10px;align-items:center;flex-wrap:wrap;
+  background:var(--card);padding:10px;border-radius:10px;
+  box-shadow:0 1px 3px rgba(0,0,0,0.06)
+}
+.top-controls input, .top-controls select{
+  padding:8px 10px;border:1px solid #e6eaf0;border-radius:8px;
+  outline:none
+}
+.top-controls input:focus, .top-controls select:focus{box-shadow:0 0 0 3px var(--ring)}
+.chk{display:flex;gap:6px;align-items:center}
 
-.hand{margin-top:12px}
-.hand__cards{display:flex;flex-wrap:wrap;gap:8px}
-.card{min-width:60px;padding:10px;border:2px solid #cfe1ef;border-radius:10px;background:#fff;cursor:pointer}
-.card--sel{border-color:var(--brand);box-shadow:0 0 0 3px var(--ring)}
-.actions{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.btn{
+  background:var(--brand);border:none;color:white;padding:8px 12px;border-radius:9px;
+  cursor:pointer;transition:transform .05s ease
+}
+.btn:hover{transform:translateY(-1px)}
+.btn-ghost{background:#e9f2ff;color:#19407a}
+.btn-warn{background:var(--warn);color:#222}
 
-.log{margin-top:14px}
-.log__body{height:180px;overflow:auto;border:1px solid #e7eef5;border-radius:10px;padding:8px;background:#fcfeff;color:#405568;font-size:13px}
+.grid{display:grid;grid-template-columns:280px 1fr;gap:14px;margin-top:14px}
 
-.foot{padding:12px 18px;color:var(--muted)}
+.left{background:var(--card);border-radius:12px;padding:12px;box-shadow:0 1px 3px rgba(0,0,0,0.06)}
+#seats{display:flex;flex-direction:column;gap:10px;margin-top:10px}
+.seat{
+  display:flex;align-items:center;justify-content:space-between;
+  border:1px dashed #d9e1ea;border-radius:10px;padding:10px 12px;background:#fbfdff
+}
+.seat .title{font-weight:600}
+.seat .sub{font-size:12px;color:var(--muted)}
+.seat .join{padding:6px 10px;border-radius:8px;background:var(--brand-2);color:#073b3a;border:none;cursor:pointer}
 
-.hint{margin-top:10px;background:#fff5cf;border:1px solid #ffe08a;color:#7a5a00;padding:8px;border-radius:10px;display:inline-block}
+.table{background:var(--card);border-radius:12px;padding:12px;box-shadow:0 1px 3px rgba(0,0,0,0.06)}
+.phase{color:var(--muted);margin-bottom:10px}
+.board{
+  border:2px dashed #e7edf5;border-radius:12px;
+  min-height:220px;display:flex;align-items:center;justify-content:center;
+  color:var(--muted)
+}
+
+.hand{margin-top:12px;background:#f9fbff;border-radius:10px;padding:10px;border:1px solid #ebf1f7}
+.hand-head{font-weight:600;margin-bottom:8px}
+.hand-row{display:flex;gap:8px;flex-wrap:wrap}
+.card{
+  width:44px;height:64px;border-radius:8px;border:1px solid #d9e1ea;background:white;
+  display:flex;align-items:center;justify-content:center;font-weight:700
+}
+.actions{display:flex;gap:10px;margin-top:10px}
+
+.foot{margin-top:14px;font-size:12px;color:var(--muted)}
+#log{white-space:pre-wrap}
