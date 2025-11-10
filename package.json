@@ -1,18 +1,17 @@
 {
   "name": "duraks-online",
   "version": "1.0.0",
-  "description": "Duraks Online (stabila lobby + istabas izveide, 6 sēdvietas)",
+  "private": true,
+  "description": "Duraks Online server (CommonJS)",
   "main": "server.js",
-  "type": "module",
   "scripts": {
     "start": "node server.js"
   },
-  "engines": {
-    "node": ">=18"
-  },
   "dependencies": {
-    "cors": "^2.8.5",
     "express": "^4.19.2",
     "socket.io": "^4.7.5"
+  },
+  "engines": {
+    "node": ">=18"
   }
 }
