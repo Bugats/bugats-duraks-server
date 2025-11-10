@@ -1,9 +1,12 @@
-// server.js — Duraks Lobby/Seats minimāls serveris ar Socket.IO
+// server.js (ESM)
+import express from "express";
+import http from "http";
+import { Server } from "socket.io";
+import path from "path";
+import { fileURLToPath } from "url";
 
-const express = require("express");
-const http = require("http");
-const { Server } = require("socket.io");
-const path = require("path");
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 const server = http.createServer(app);
@@ -11,26 +14,11 @@ const io = new Server(server, {
   cors: { origin: "*", methods: ["GET", "POST"] }
 });
 
-// statika (ja atver no Render)
 app.use(express.static(path.join(__dirname, "src", "public")));
+app.get("/", (_req, res) => res.send("Duraks Online server is running."));
 
-app.get("/", (_req, res) => {
-  res.send("Duraks Online server is running.");
-});
-
-// ====== Istabu glabātuve ======
-/**
- * room = {
- *   code: 'ABCD',
- *   deckType: 36|52,
- *   solo: boolean,
- *   seats: [{taken:bool, name?:string, socketId?:string}, x6],
- *   started: false,
- * }
- */
+// ------------- istabu loģika (tieši tā pati kā iepriekš dotajā CommonJS) -------------
 const rooms = new Map();
-
-// util
 function makeCode() {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let c = "";
@@ -50,11 +38,9 @@ function broadcastRoom(room) {
   });
 }
 
-// ====== Socket.io ======
 io.on("connection", (socket) => {
   socket.emit("pong");
 
-  // ISTABAS IZVEIDE
   socket.on("room:create", ({ name, deckType, solo }, ack) => {
     try {
       const code = makeCode();
@@ -67,43 +53,31 @@ io.on("connection", (socket) => {
       };
       rooms.set(code, room);
 
-      // Klients automātiski pievienosies istabai ar seat:join,
-      // bet varam ielikt arī patīkamu default: (nav obligāti)
-
       socket.join(code);
-      // Sākotnējais stāvoklis
       broadcastRoom(room);
 
-      if (ack) ack({ ok: true, code });
+      ack?.({ ok: true, code });
     } catch (e) {
-      if (ack) ack({ ok: false, error: e.message || "room:create error" });
+      ack?.({ ok: false, error: e.message || "room:create error" });
     }
   });
 
-  // SĒDVIETA PIEVIENOŠANĀS
   socket.on("seat:join", ({ code, seatIndex, name }, ack) => {
     const room = rooms.get(code);
-    if (!room) return ack && ack({ ok: false, error: "Istaba nav atrasta" });
+    if (!room) return ack?.({ ok: false, error: "Istaba nav atrasta" });
+    if (!Number.isInteger(seatIndex) || seatIndex < 0 || seatIndex > 5)
+      return ack?.({ ok: false, error: "Nederīgs sēdvietas indekss" });
 
-    if (!Number.isInteger(seatIndex) || seatIndex < 0 || seatIndex > 5) {
-      return ack && ack({ ok: false, error: "Nederīgs sēdvietas indekss" });
-    }
-
-    // ja jau esi kādā sēdvietā tajā pašā istabā — atbrīvo
     for (let i = 0; i < 6; i++) {
       const s = room.seats[i];
       if (s.taken && s.socketId === socket.id) {
-        s.taken = false;
-        s.socketId = undefined;
-        s.name = undefined;
+        s.taken = false; s.socketId = undefined; s.name = undefined;
       }
     }
 
-    // pārbaudi vai brīva
     const seat = room.seats[seatIndex];
-    if (seat.taken) return ack && ack({ ok: false, error: "Sēdvieta jau aizņemta" });
+    if (seat.taken) return ack?.({ ok: false, error: "Sēdvieta jau aizņemta" });
 
-    // piesēdini
     seat.taken = true;
     seat.socketId = socket.id;
     seat.name = (name || "Spēlētājs").toString().slice(0, 24);
@@ -111,7 +85,6 @@ io.on("connection", (socket) => {
     socket.join(room.code);
     broadcastRoom(room);
 
-    // SOLO režīms: ja vienīgais cilvēks istabā un seat 1 brīvs — ieliec BOT uz 1. vietu
     if (room.solo) {
       const humanCount = room.seats.filter(s => s.taken && s.socketId).length;
       const botIndex = 1;
@@ -121,21 +94,17 @@ io.on("connection", (socket) => {
       }
     }
 
-    // paziņo tikai šim soketam, kur viņš sēž
     socket.emit("seat:you", seatIndex);
-    return ack && ack({ ok: true, seatIndex });
+    ack?.({ ok: true, seatIndex });
   });
 
-  // Atvienošanās — atbrīvo sēdvietu
   socket.on("disconnect", () => {
     for (const room of rooms.values()) {
       let changed = false;
       for (let i = 0; i < 6; i++) {
         const s = room.seats[i];
         if (s.taken && s.socketId === socket.id) {
-          s.taken = false;
-          s.socketId = undefined;
-          s.name = undefined;
+          s.taken = false; s.socketId = undefined; s.name = undefined;
           changed = true;
         }
       }
@@ -144,8 +113,5 @@ io.on("connection", (socket) => {
   });
 });
 
-// ====== START ======
 const PORT = process.env.PORT || 10000;
-server.listen(PORT, () => {
-  console.log("Duraks Online running on port", PORT);
-});
+server.listen(PORT, () => console.log("Duraks Online running on port", PORT));
