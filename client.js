@@ -1,5 +1,354 @@
 // client.js
 // front-end for Duraks Online — Bugats Edition
+/* client.js – Duraks Online (Hostinger klients -> Render WS serverim)
+   Autors: Bugats projekts
+   -> Klients hostējas: thezone.lv/rps
+   -> Serveris (socket.io): wss://duraks-online.onrender.com
+*/
+
+/* ===================== KONFIGURĀCIJA ===================== */
+const SERVER_URL = 'wss://duraks-online.onrender.com'; // ← ja vajag, nomaini
+const USE_WEBSOCKET_ONLY = true; // stabilitātei liekam tikai WebSocket transportu
+
+/* ===================== SOCKET SAVIENOJUMS ===================== */
+const socket = io(SERVER_URL, {
+  transports: USE_WEBSOCKET_ONLY ? ['websocket'] : undefined,
+});
+
+/* ===================== UI ELEM. SAITES ===================== */
+// Header
+const elName        = document.querySelector('input[name="vards"]')        || document.getElementById('vards')        || document.querySelector('#vards');
+const elDeckSelect  = document.querySelector('select[name="kava"]')         || document.getElementById('kava');
+const elSolo        = document.querySelector('input[name="solo"]')          || document.querySelector('#solo');
+const elCreateBtn   = document.querySelector('#izveidot')                   || document.querySelector('button[data-action="create"]');
+const elJoinCode    = document.querySelector('#kodss')                      || document.querySelector('input[name="istabas_kods"]');
+const elJoinBtn     = document.querySelector('#pievienoties')               || document.querySelector('button[data-action="join"]');
+
+// Sēdvietas
+const seatButtons   = Array.from(document.querySelectorAll('[data-seat]'));
+// Poga atstāt sēdvietu
+const elLeaveSeat   = document.querySelector('[data-action="leave-seat"]');
+
+// Spēles zona
+const elBoard       = document.querySelector('#board')        || document.querySelector('[data-area="board"]');
+const elHand        = document.querySelector('#hand')         || document.querySelector('[data-area="hand"]');
+const elLog         = document.querySelector('#log')          || document.querySelector('[data-area="log"]');
+
+// Kontroles
+const btnAttack     = document.querySelector('[data-action="attack"]');
+const btnAdd        = document.querySelector('[data-action="add"]');
+const btnDefend     = document.querySelector('[data-action="defend"]');
+const btnTake       = document.querySelector('[data-action="take"]');
+const btnEnd        = document.querySelector('[data-action="end-turn"]');
+
+// Iestatījumi
+const chkHints      = document.querySelector('input[name="hints"]')         || document.querySelector('#hints');
+const chkConfirm    = document.querySelector('input[name="confirm"]')       || document.querySelector('#confirm');
+
+/* ===================== KLIENTA STĀVOKLIS ===================== */
+let currentRoom     = null;       // { code, deckType, trump, phase, ... }
+let myId            = null;
+let mySeat          = null;       // 1..6 vai null
+let state           = null;       // pilnais servera stāvoklis
+let selectedCards   = [];         // lietotāja pašlaik atzīmētās kārtis (uzbrukumam/aizsardzībai)
+let handIndexMap    = [];         // karšu indeksu saite ar UI
+let confirming      = true;       // apstiprinājuma režīms
+let hintsOn         = true;
+
+/* ===================== PALĪGFUNKCIJAS ===================== */
+function log(msg) {
+  if (!elLog) return;
+  const line = document.createElement('div');
+  line.textContent = '• ' + msg;
+  elLog.appendChild(line);
+  elLog.scrollTop = elLog.scrollHeight;
+}
+function q(v) { return (v ?? '').toString().trim(); }
+function getDeckType() {
+  // select vērtības – "36 kārtis (2–4)" vai "52 kārtis (2–4)" u.tml.
+  const raw = (elDeckSelect && elDeckSelect.value) ? elDeckSelect.value : '36';
+  const m = raw.match(/\d+/);
+  return m ? Number(m[0]) : 36;
+}
+function mustConfirm() {
+  return (chkConfirm && chkConfirm.checked) ?? confirming;
+}
+function withConfirm(message, cb) {
+  if (mustConfirm()) {
+    if (confirm(message)) cb();
+  } else cb();
+}
+function resetSelection() {
+  selectedCards = [];
+  // noņem vizuālo iezīmējumu
+  elHand?.querySelectorAll('.card.selected')?.forEach(c => c.classList.remove('selected'));
+}
+function renderSeats(st) {
+  // Sēdvietas – viens spēlētājs var sēdēt tikai vienā vietā
+  // paredzēts, ka seatButtons ir 6 gab. ar data-seat="1..6"
+  if (!seatButtons?.length) return;
+  seatButtons.forEach(btn => {
+    const idx = Number(btn.getAttribute('data-seat'));
+    const taken = st.seats?.[idx]?.taken;
+    const isMine = (st.seats?.[idx]?.playerId === myId);
+    btn.disabled = !!taken && !isMine;
+    btn.textContent = isMine ? 'Tava sēdvieta' : (taken ? 'Aizņemts' : 'Pievienoties');
+  });
+}
+
+function cardText(card) {
+  // {rank:'A', suit:'♣', trump:false}
+  return `${card.rank}${card.suit}`;
+}
+function renderHand(st) {
+  if (!elHand) return;
+  elHand.innerHTML = '';
+  handIndexMap = [];
+  const mine = st.players?.[myId]?.hand || [];
+  mine.forEach((c, i) => {
+    const div = document.createElement('button');
+    div.className = 'card';
+    div.textContent = cardText(c);
+    div.title = 'Klikšķini, lai iezīmētu/atiezīmētu';
+    div.addEventListener('click', () => {
+      const pos = selectedCards.indexOf(i);
+      if (pos >= 0) {
+        selectedCards.splice(pos, 1);
+        div.classList.remove('selected');
+      } else {
+        selectedCards.push(i);
+        div.classList.add('selected');
+      }
+    });
+    elHand.appendChild(div);
+    handIndexMap.push(i);
+  });
+}
+
+function renderBoard(st) {
+  if (!elBoard) return;
+  elBoard.innerHTML = '';
+  // Rāda metiena pārus (uzbrukums/aizsardzība)
+  const pairs = st.battlefield || [];
+  pairs.forEach(p => {
+    const slot = document.createElement('div');
+    slot.className = 'pair';
+    const up = document.createElement('div');
+    up.className = 'card up';
+    up.textContent = p.attack ? cardText(p.attack) : '—';
+
+    const down = document.createElement('div');
+    down.className = 'card down ' + (p.defense ? '' : 'empty');
+    down.textContent = p.defense ? cardText(p.defense) : '—';
+
+    slot.appendChild(up);
+    slot.appendChild(down);
+    elBoard.appendChild(slot);
+  });
+}
+
+function applyHints(st) {
+  if (!hintsOn || !elHand) return;
+  // elementārs hints: ja aizstāvis – iezīmē kartes, kuras var sist;
+  // ja uzbrucējs – iezīmē kartes, kuras drīkst mest (pēc rankiem uz galda)
+  elHand.querySelectorAll('.card')?.forEach(c => c.classList.remove('hint'));
+  try {
+    if (st.phase === 'defend' && st.turn?.defender === myId) {
+      const need = (st.battlefield || [])
+        .filter(p => p.attack && !p.defense)
+        .map(p => p.attack);
+      const myHand = st.players?.[myId]?.hand || [];
+      myHand.forEach((c, idx) => {
+        const ok = need.some(a => (
+          (c.suit === a.suit && c.power > a.power) || (c.trump && !a.trump)
+        ));
+        if (ok) elHand.children[idx]?.classList.add('hint');
+      });
+    } else if (st.phase === 'attack' && st.turn?.attacker === myId) {
+      const ranksOnTable = new Set((st.battlefield || [])
+        .flatMap(p => [p.attack?.rank, p.defense?.rank].filter(Boolean)));
+      const myHand = st.players?.[myId]?.hand || [];
+      myHand.forEach((c, idx) => {
+        if (ranksOnTable.size === 0 || ranksOnTable.has(c.rank)) {
+          elHand.children[idx]?.classList.add('hint');
+        }
+      });
+    }
+  } catch (_) { /* klusām */ }
+}
+
+function renderAll(st) {
+  state = st;
+  currentRoom = st.room;
+  renderSeats(st);
+  renderBoard(st);
+  renderHand(st);
+  applyHints(st);
+
+  // Pogas aktivizēšana/atspējošana
+  const isAtt = st.turn?.attacker === myId;
+  const isDef = st.turn?.defender === myId;
+
+  if (btnAttack) btnAttack.disabled = !isAtt || (st.phase !== 'attack');
+  if (btnAdd)    btnAdd.disabled    = !isAtt || (st.phase !== 'attack');
+  if (btnDefend) btnDefend.disabled = !isDef || (st.phase !== 'defend');
+  if (btnTake)   btnTake.disabled   = !isDef || (st.phase !== 'defend');
+  if (btnEnd)    btnEnd.disabled    = !!(st.phase !== 'attack' && st.phase !== 'defend');
+
+  // virsraksta info (ja tev lapā ir vieta – piemērā tikai logā)
+  log(`Fāze: ${st.phase} • Kava: ${st.deckLeft} • Trumps: ${st.trump || '—'}`);
+}
+
+/* ===================== SOCKET NOTIKUMI ===================== */
+socket.on('connect', () => {
+  myId = socket.id;
+  log('Savienojums izveidots.');
+});
+socket.on('disconnect', () => {
+  log('Savienojums zudis.');
+});
+
+socket.on('room:created', (payload) => {
+  // { code, state }
+  currentRoom = { code: payload.code };
+  log(`Istaba izveidota: ${payload.code}`);
+  if (payload.state) renderAll(payload.state);
+});
+
+socket.on('room:joined', (payload) => {
+  // { code, state }
+  currentRoom = { code: payload.code };
+  log(`Pievienojies istabai: ${payload.code}`);
+  if (payload.state) renderAll(payload.state);
+});
+
+socket.on('seat:accepted', (payload) => {
+  // { seat, state }
+  mySeat = payload.seat;
+  log(`Sēdvieta pieņemta: ${mySeat}`);
+  if (payload.state) renderAll(payload.state);
+});
+
+socket.on('state', (st) => {
+  renderAll(st);
+});
+
+socket.on('error:msg', (m) => {
+  alert(m || 'Kļūda.');
+});
+
+/* ===================== UI -> SERVER ===================== */
+function createRoom() {
+  const name = q(elName?.value) || 'BUGATS';
+  const deckType = getDeckType();  // 36 vai 52
+  const solo = !!(elSolo?.checked);
+  const code = null; // serveris pats ģenerēs
+
+  socket.emit('room:create', { code, name, deckType, solo });
+}
+
+function joinRoom() {
+  const code = q(elJoinCode?.value).toUpperCase();
+  if (!code) return alert('Ievadi istabas kodu!');
+  socket.emit('room:join', { code });
+}
+
+function takeSeat(seat) {
+  if (!currentRoom?.code) return alert('Vispirms izveido vai pievienojies istabai.');
+  socket.emit('seat:take', { code: currentRoom.code, seat });
+}
+
+function leaveSeat() {
+  if (!currentRoom?.code) return;
+  socket.emit('seat:leave', { code: currentRoom.code });
+  mySeat = null;
+}
+
+function emitAttack() {
+  if (!currentRoom?.code) return;
+  const indices = [...selectedCards];
+  if (indices.length < 1) return alert('Izvēlies karti(-es) uzbrukumam.');
+  withConfirm('Uzbrukt ar iezīmētajām kārtīm?', () => {
+    socket.emit('play:attack', { code: currentRoom.code, indices });
+    resetSelection();
+  });
+}
+function emitAdd() {
+  if (!currentRoom?.code) return;
+  const indices = [...selectedCards];
+  if (indices.length < 1) return alert('Izvēlies, ko piemest.');
+  withConfirm('Piemest iezīmētās kārtis?', () => {
+    socket.emit('play:add', { code: currentRoom.code, indices });
+    resetSelection();
+  });
+}
+function emitDefend() {
+  if (!currentRoom?.code) return;
+  const indices = [...selectedCards];
+  if (indices.length < 1) return alert('Izvēlies, ar ko sist.');
+  withConfirm('Nosist ar iezīmētajām kārtīm?', () => {
+    socket.emit('play:defend', { code: currentRoom.code, indices });
+    resetSelection();
+  });
+}
+function emitTake() {
+  if (!currentRoom?.code) return;
+  withConfirm('Paņemt galda kārtis?', () => {
+    socket.emit('play:take', { code: currentRoom.code });
+  });
+}
+function emitEnd() {
+  if (!currentRoom?.code) return;
+  socket.emit('turn:end', { code: currentRoom.code });
+}
+
+/* ===================== LISTENERU REĢISTRĀCIJA ===================== */
+// Istabas vadība
+elCreateBtn?.addEventListener('click', createRoom);
+elJoinBtn?.addEventListener('click', joinRoom);
+
+// Sēdvietas
+seatButtons?.forEach(btn => {
+  btn.addEventListener('click', () => {
+    const seat = Number(btn.getAttribute('data-seat'));
+    takeSeat(seat);
+  });
+});
+elLeaveSeat?.addEventListener('click', leaveSeat);
+
+// Spēles pogas
+btnAttack?.addEventListener('click', emitAttack);
+btnAdd?.addEventListener('click', emitAdd);
+btnDefend?.addEventListener('click', emitDefend);
+btnTake?.addEventListener('click', emitTake);
+btnEnd?.addEventListener('click', emitEnd);
+
+// Iestatījumi
+if (chkHints) {
+  hintsOn = !!chkHints.checked;
+  chkHints.addEventListener('change', () => {
+    hintsOn = !!chkHints.checked;
+    if (state) applyHints(state);
+  });
+}
+if (chkConfirm) {
+  confirming = !!chkConfirm.checked;
+  chkConfirm.addEventListener('change', () => {
+    confirming = !!chkConfirm.checked;
+  });
+}
+
+/* ===================== UI UZLABOJUMI ===================== */
+// Viena sēdvieta uz spēlētāju – serveris jau validē, bet klients arī bloķē
+socket.on('seat:busy', (seat) => {
+  log(`Sēdvieta ${seat} ir aizņemta.`);
+});
+
+// Vienkāršs “status” loga pieraksts par fāzēm/maiņām
+socket.on('turn:info', (msg) => log(msg));
+
+/* ===================== STARTUP ===================== */
+log('Klients ielādēts. Ievadi vārdu, izvēlies kavu, izveido/pievienojies istabai, paņem sēdvietu un startē!');
 
 // ================== IMPORTANT ==================
 // Ieliec šeit sava Node/Socket.IO servera HTTPS adresi (Render u.c.)
