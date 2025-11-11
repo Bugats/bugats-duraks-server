@@ -3,13 +3,8 @@
   "version": "1.0.1",
   "description": "Duraks (podkidnoy) baseline ar Rooms, 6 seats, Ready/Start, BOT, reconnect, undo, mutex, leaderboard",
   "main": "server.js",
-  "scripts": {
-    "start": "node server.js",
-    "start:dev": "NODE_ENV=development node server.js"
-  },
-  "engines": {
-    "node": ">=18"
-  },
+  "scripts": { "start": "node server.js", "start:dev": "NODE_ENV=development node server.js" },
+  "engines": { "node": ">=18" },
   "dependencies": {
     "cors": "^2.8.5",
     "express": "^4.19.2",
