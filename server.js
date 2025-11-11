@@ -408,11 +408,12 @@ io.on("connection", (socket) => {
     const { deck, trumpCard, trumpSuit, trumpAvailable, ranks } = initDeck(useDeck);
     const hostCid = cid || socket.id;
 
+    // ← host NEEGUĻAS uzreiz, viņš ir skatītājs un nav “gatavs”
     const room = {
       id: roomId,
       hostId: socket.id,
       hostCid: hostCid,
-      players: [{ id: socket.id, cid: hostCid, nick: nickname || "Spēlētājs", hand: [], isBot:false, ready:true, connected:true, spectator:false, lastSeen:now() }], // ready=true
+      players: [{ id: socket.id, cid: hostCid, nick: nickname || "Spēlētājs", hand: [], isBot:false, ready:false, connected:true, spectator:true, lastSeen:now() }],
       deck, discard: [], trumpCard, trumpSuit, trumpAvailable, ranks,
       table: [], attacker:0, defender:0, phase:"lobby",
       passes: new Set(), chat:[],
@@ -427,17 +428,7 @@ io.on("connection", (socket) => {
     socket.join(roomId);
     emitState(room);
 
-    // AUTO-START SOLO (ja 1 spēlētājs pēc 1.2s)
-    room._autoStartTimer = setTimeout(()=>{
-      if (!rooms.has(room.id)) return;
-      const r = rooms.get(room.id);
-      if (!r || r.phase!=="lobby") return;
-      const humans = r.players.filter(p=>!p.isBot && !p.spectator);
-      if (humans.length === 1) {
-        const problem = startGame(r, undefined);
-        if (problem) console.warn("Auto-start problem:", problem);
-      }
-    }, 1200);
+    // NOŅEMTS: auto-start solo taimeris (tagad jāspiež GATAVS un START)
   });
 
   socket.on("joinRoom", ({ roomId, nickname }) => {
@@ -446,9 +437,8 @@ io.on("connection", (socket) => {
     if (!room) return err("Istaba nav atrasta");
     if (room.phase !== "lobby") return err("Spēle jau sācta vai beigusies — pievienoties var tikai lobby");
 
-    const playing = room.players.filter(p=>!p.spectator).length;
-    const spectator = playing >= MAX_PLAYERS;
-    room.players.push({ id: socket.id, cid: cid||socket.id, nick: nickname || "Spēlētājs", hand: [], isBot:false, ready:false, connected:true, spectator, lastSeen:now() });
+    // Visi ienāk kā skatītāji; apsēsties var ar “Gatavs”
+    room.players.push({ id: socket.id, cid: cid||socket.id, nick: nickname || "Spēlētājs", hand: [], isBot:false, ready:false, connected:true, spectator:true, lastSeen:now() });
     if (cid) sessions.set(cid, { socketId: socket.id, roomId });
     socket.join(roomId);
     emitState(room);
@@ -459,8 +449,25 @@ io.on("connection", (socket) => {
     const room = rooms.get(roomId);
     if (!room || room.phase!=="lobby") return;
     const p = room.players.find(pl=>pl.id===socket.id);
-    if (!p || p.spectator) return;
-    p.ready = !p.ready;
+    if (!p) return;
+
+    // Gatavs ⇄ Nē-gatavs + sēdēšana ⇄ skatītājs
+    if (!p.ready) {
+      // mēģina apsēsties, ja ir vieta
+      const playing = room.players.filter(x=>!x.spectator).length;
+      if (playing >= MAX_PLAYERS) {
+        p.ready = false; p.spectator = true;
+        emitState(room);
+        return err("Nav brīvu sēdvietu");
+      }
+      p.ready = true;
+      p.spectator = false;
+    } else {
+      // ceļas kā skatītājs (lobby)
+      p.ready = false;
+      p.spectator = true;
+      p.hand = []; // drošībai tukša roka lobby stadijā
+    }
     emitState(room);
   });
 
