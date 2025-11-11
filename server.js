@@ -1,5 +1,6 @@
 // server.js — Duraks (podkidnoy) ar Rooms, Leaderboard, Reconnect, Undo limitu,
-// BOT soft-delay, DROŠĪBAS SLOĢIEM, un HOST dzēš istabu (deleteRoom)
+// BOT soft-delay, DROŠĪBAS JOSTĀM (mutex + validācija + auto-repair + rate-limit),
+// un HOST dzēšamās istabas (“deleteRoom”)
 
 import express from "express";
 import { createServer } from "http";
@@ -52,7 +53,7 @@ function withRoomLock(room, fn) {
   return room._lock;
 }
 
-// UZBRUKUMA VALIDĀCIJA — pirmo kārti var likt tikai pašreizējais attacker
+// UZBRUKUMA VALIDĀCIJA
 function validateAttackAllowed(room, attackerIdx, card) {
   if (attackerIdx === room.defender) throw new Error("Aizsargs nevar uzbrukt");
   const limit = maxPairsAllowed(room);
@@ -330,7 +331,7 @@ function visibleState(room, sid){
     youSpectator: !!me?.spectator,
     meCanUndo: !!room.lastAction && room.lastAction.playerId===sid && room.phase==="attack",
     undoLeftThisBout: me ? (room.undoUsed?.has(me.id)?0:1) : 0,
-    isHost: (sid === room.hostId) // ← JAUNAIS: klientam zināt, vai ir host
+    isHost: (sid === room.hostId) // ← JAUNS
   };
 }
 function emitState(room){ for (const p of room.players) io.to(p.id).emit("state", visibleState(room,p.id)); }
@@ -343,6 +344,20 @@ function reassignHost(room){
 function replaceWithBot(room, idx){
   const left = room.players[idx];
   room.players[idx] = { id:`bot-${Math.random().toString(36).slice(2,7)}`, cid:`bot-${Math.random().toString(36).slice(2,5)}`, nick:"BOT", hand:left.hand||[], isBot:true, ready:true, connected:true, spectator:false, lastSeen:now() };
+}
+
+/* ===== Istabas dzēšana (host) ===== */
+function destroyRoom(roomId) {
+  const room = rooms.get(roomId);
+  if (!room) return;
+  try { clearBotTimer(room); } catch (_) {}
+  io.to(room.id).emit("roomDeleted", { roomId: room.id });
+  for (const p of room.players) {
+    if (p?.cid && sessions.get(p.cid)?.roomId === room.id) sessions.delete(p.cid);
+    const sock = io.sockets.sockets.get(p.id);
+    if (sock) sock.leave(room.id);
+  }
+  rooms.delete(room.id);
 }
 
 /* ===== API ===== */
@@ -377,33 +392,12 @@ app.get("/api/leaderboard", (req,res)=>{
   res.json({ period, type, rows });
 });
 
-/* ===== Dzēšana (host-only) ===== */
-function destroyRoom(roomId) {
-  const room = rooms.get(roomId);
-  if (!room) return;
-
-  try { clearBotTimer(room); } catch (_){}
-
-  // Paziņo visiem istabā
-  io.to(room.id).emit("roomDeleted", { roomId: room.id });
-
-  // Notīra sesiju atzīmes un atvieno no room
-  for (const p of room.players) {
-    if (p?.cid && sessions.get(p.cid)?.roomId === room.id) {
-      sessions.delete(p.cid);
-    }
-    const sock = io.sockets.sockets.get(p.id);
-    if (sock) sock.leave(room.id);
-  }
-  rooms.delete(room.id);
-}
-
 /* ===== Sockets ===== */
 io.on("connection", (socket) => {
   const err = (m)=>socket.emit("error", m);
   const cid = socket.handshake.auth?.cid || socket.handshake.query?.cid || null;
 
-  // Reconnect uz esošu istabu pēc cid
+  // Reconnect
   if (cid && sessions.has(cid)){
     const sess = sessions.get(cid);
     const room = rooms.get(sess.roomId);
@@ -434,7 +428,7 @@ io.on("connection", (socket) => {
       id: roomId,
       hostId: socket.id,
       hostCid: hostCid,
-      players: [{ id: socket.id, cid: hostCid, nick: nickname || "Spēlētājs", hand: [], isBot:false, ready:true, connected:true, spectator:false, lastSeen:now() }], // host gatavs
+      players: [{ id: socket.id, cid: hostCid, nick: nickname || "Spēlētājs", hand: [], isBot:false, ready:true, connected:true, spectator:false, lastSeen:now() }],
       deck, discard: [], trumpCard, trumpSuit, trumpAvailable, ranks,
       table: [], attacker:0, defender:0, phase:"lobby",
       passes: new Set(), chat:[],
@@ -449,7 +443,7 @@ io.on("connection", (socket) => {
     socket.join(roomId);
     emitState(room);
 
-    // AUTO-START SOLO (ja 1 spēlētājs pēc 1.2s — host + BOT)
+    // AUTO-START SOLO (ja 1 spēlētājs pēc 1.2s)
     room._autoStartTimer = setTimeout(()=>{
       if (!rooms.has(room.id)) return;
       const r = rooms.get(room.id);
@@ -550,12 +544,13 @@ io.on("connection", (socket) => {
     if (problem) return err(problem);
   });
 
-  // === HOST DZĒŠ ISTABU ===
+  // HOST: dzēst istabu
   socket.on("deleteRoom", ({ roomId }) => {
     if (!allowAction(socket.id)) return socket.emit("error", "Pārāk daudz darbību. Pamēģini vēlreiz.");
     const room = rooms.get(roomId);
     if (!room) return;
-    if (socket.id !== room.hostId) return socket.emit("error", "Tikai istabas izveidotājs (host) drīkst dzēst istabu.");
+    const isHostNow = (socket.id === room.hostId);
+    if (!isHostNow) return socket.emit("error", "Tikai istabas izveidotājs (host) drīkst dzēst istabu.");
     destroyRoom(roomId);
   });
 
