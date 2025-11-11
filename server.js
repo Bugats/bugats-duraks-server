@@ -1,50 +1,17 @@
 // server.js — Duraks (podkidnoy) ar Rooms, Leaderboard, Reconnect, Undo limitu,
-// BOT soft-delay, drošības slāņiem (mutex + validācija + auto-repair + rate-limit), mid-game spectator join
+// BOT soft-delay, un DROŠĪBAS SLOĢIEM (mutex + validācija + auto-repair + rate-limit)
 
 import express from "express";
 import { createServer } from "http";
 import { Server } from "socket.io";
 import cors from "cors";
-import helmet from "helmet";
 
 const app = express();
-
-/* ===== Drošība & CORS ===== */
-const ORIGINS = [
-  "https://thezone.lv",
-  "https://www.thezone.lv",
-  "https://duraks-online.onrender.com", // Render pats
-  "http://localhost:3000",
-  "http://127.0.0.1:3000",
-  "http://localhost:5173",
-  "http://127.0.0.1:5173"
-];
-
-app.set("trust proxy", 1);
-app.use(helmet({
-  contentSecurityPolicy: false, // atstāj izslēgtu, jo frontu hostē atsevišķi
-  crossOriginEmbedderPolicy: false
-}));
-
-app.use(cors({
-  origin: (origin, cb) => {
-    if (!origin) return cb(null, true);
-    if (ORIGINS.includes(origin)) return cb(null, true);
-    return cb(null, true); // vari nomainīt uz cb(new Error("CORS")) ja gribi stingri
-  },
-  methods: ["GET", "POST"],
-  credentials: false
-}));
-
-app.get("/", (_, res) => res.json({ ok: true, name: "Duraks server", ts: Date.now() }));
+app.use(cors());
 app.get("/health", (_, res) => res.json({ ok: true }));
 
 const httpServer = createServer(app);
-const io = new Server(httpServer, {
-  cors: { origin: ORIGINS, methods: ["GET", "POST"] },
-  pingTimeout: 20000,   // mobilajiem stabilāk
-  pingInterval: 8000
-});
+const io = new Server(httpServer, { cors: { origin: "*", methods: ["GET","POST"] } });
 
 /* ===== Konstantes ===== */
 const RANKS_36 = ["6","7","8","9","10","J","Q","K","A"];
@@ -96,7 +63,7 @@ function validateAttackAllowed(room, attackerIdx, card) {
   if (!canAdd) throw new Error("Jāliek tāda paša ranga kārts");
 }
 
-// Invariantu sargs — “auto-repair”
+// Invariantu sargs — “auto-repair”, lai galds nekļūtu nekorekts
 function enforceInvariants(room) {
   const limit = maxPairsAllowed(room);
   if (room.table.length > limit) {
@@ -120,7 +87,6 @@ function enforceInvariants(room) {
     endBoutTook(room);
   }
 
-  // Pāra korektums: aizsargs nedrīkstētu būt ar nepareizu aizsardzību
   const trump = room.trumpSuit, ranks = room.ranks;
   for (const pr of room.table) {
     if (pr.defend && !canCover(pr.attack, pr.defend, trump, ranks)) {
@@ -353,6 +319,7 @@ function visibleState(room, sid){
   const me = room.players.find(p=>p.id===sid);
   return {
     id: room.id, phase: room.phase,
+    hostId: room.hostId, // ← UI vajadzībām
     trumpSuit: room.trumpSuit, trumpCard: room.trumpCard,
     deckCount: room.deck.length + (room.trumpAvailable?1:0),
     discardCount: room.discard.length,
@@ -419,7 +386,7 @@ io.on("connection", (socket) => {
   // Reconnect uz esošu istabu, ja tāda sesija zināma
   if (cid && sessions.has(cid)){
     const sess = sessions.get(cid);
-    const room = sessions.has(cid) ? rooms.get(sess.roomId) : null;
+    const room = rooms.get(sess.roomId);
     if (room){
       const p = room.players.find(pl=>pl.id===sess.socketId || pl.cid===cid);
       if (p){
@@ -428,9 +395,6 @@ io.on("connection", (socket) => {
         socket.join(room.id);
         emitState(room);
       }
-    } else {
-      // ja istaba vairs nav — notīri sesiju
-      sessions.delete(cid);
     }
   }
 
@@ -464,19 +428,11 @@ io.on("connection", (socket) => {
     if (!allowAction(socket.id)) return err("Pārāk daudz darbību. Mēģini vēlreiz pēc mirkļa.");
     const room = rooms.get(roomId);
     if (!room) return err("Istaba nav atrasta");
+    if (room.phase !== "lobby") return err("Spēle jau sākusies");
 
-    // ✅ Atļaujam pievienoties arī, ja spēle jau sākusies — kā skatītājs
     const playing = room.players.filter(p=>!p.spectator).length;
-    const spectatorBecauseFull = playing >= MAX_PLAYERS;
-    const spectator = spectatorBecauseFull || (room.phase !== "lobby");
-
-    room.players.push({
-      id: socket.id, cid: cid||socket.id,
-      nick: nickname || "Spēlētājs",
-      hand: [], isBot:false, ready: !spectator && room.phase==="lobby" ? false : true,
-      connected:true, spectator, lastSeen:now()
-    });
-
+    const spectator = playing >= MAX_PLAYERS;
+    room.players.push({ id: socket.id, cid: cid||socket.id, nick: nickname || "Spēlētājs", hand: [], isBot:false, ready:false, connected:true, spectator, lastSeen:now() });
     if (cid) sessions.set(cid, { socketId: socket.id, roomId });
     socket.join(roomId);
     emitState(room);
@@ -750,11 +706,7 @@ io.on("connection", (socket) => {
       else room.players.splice(idx,1);
       room.lastAction = undefined;
     }
-    if (activePlayers(room).length === 0){
-      rooms.delete(room.id);
-      if (leaving.cid) sessions.delete(leaving.cid);
-      return;
-    }
+    if (activePlayers(room).length === 0){ rooms.delete(room.id); return; }
     emitState(room);
   });
 
@@ -775,7 +727,6 @@ io.on("connection", (socket) => {
             if (!still.spectator) replaceWithBot(room, i);
             else room.players.splice(i,1);
           }
-          if (activePlayers(room).length === 0) rooms.delete(room.id);
           emitState(room);
         }, RECONNECT_GRACE_MS);
       }
