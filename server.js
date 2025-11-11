@@ -1,12 +1,14 @@
-// server.js — Duraks (podkidnoy) ar Rooms, Leaderboard, Reconnect, Undo limitu,
+// Duraks (podkidnoy) ar Rooms, Leaderboard, Reconnect, Undo limitu,
 // BOT soft-delay, un DROŠĪBAS SLOĢIEM (mutex + validācija + auto-repair + rate-limit)
 
 import express from "express";
+import helmet from "helmet";
 import { createServer } from "http";
 import { Server } from "socket.io";
 import cors from "cors";
 
 const app = express();
+app.use(helmet());
 app.use(cors());
 app.get("/health", (_, res) => res.json({ ok: true }));
 
@@ -84,7 +86,7 @@ function enforceInvariants(room) {
     }
   }
   if (room.table.length > maxPairsAllowed(room)) {
-    endBoutTook(room);
+    endBoutTook(room); // droši laužam deadlock
   }
 
   const trump = room.trumpSuit, ranks = room.ranks;
@@ -319,7 +321,6 @@ function visibleState(room, sid){
   const me = room.players.find(p=>p.id===sid);
   return {
     id: room.id, phase: room.phase,
-    hostId: room.hostId, // ← UI vajadzībām
     trumpSuit: room.trumpSuit, trumpCard: room.trumpCard,
     deckCount: room.deck.length + (room.trumpAvailable?1:0),
     discardCount: room.discard.length,
@@ -505,7 +506,7 @@ io.on("connection", (socket) => {
     if (problem) return err(problem);
   });
 
-  /* ===== Spēles darbības (APTINAM ar withRoomLock + enforceInvariants) ===== */
+  /* ===== Spēles darbības ===== */
   socket.on("playAttack", ({ roomId, card }) => {
     const room = rooms.get(roomId); if(!room || room.phase!=="attack") return;
     if (!allowAction(socket.id)) return err("Pārāk daudz darbību. Pamēģini vēlreiz.");
