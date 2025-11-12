@@ -69,7 +69,7 @@ function validateAttackAllowed(room, attackerIdx, card) {
   if (!canAdd) throw new Error("Jāliek tāda paša ranga kārts");
 }
 
-// **Labotais** invariantu sargs — nebeidz bauta un neliek ņemt
+// Labotais invariantu sargs — nebeidz bauta un neliek ņemt automātiski
 function enforceInvariants(room) {
   if (!room) return;
 
@@ -91,7 +91,7 @@ function enforceInvariants(room) {
     }
   }
 
-  // nepareiza aizsardzība: atgriež aizsargkārti atpakaļ aizsargam, pāris paliek neaizklāts
+  // nepareiza aizsardzība: atgriež aizsargkārti, pāris paliek neaizklāts
   const trump = room.trumpSuit, ranks = room.ranks;
   const defender = room.players[room.defender];
   for (const pr of room.table) {
@@ -556,17 +556,33 @@ io.on("connection", (socket) => {
     while (room.players[room.defender]?.spectator) room.defender = nextIndex(room.defender, room.players);
   }
 
+  // *** SALABOTA versija — neliec vairāk par 1 BOT, novērš dubultstartu
   function startGame(room, botStepMs){
-    const humans = room.players.filter(p=>!p.isBot && !p.spectator);
-    if (humans.length === 1){
+    // nesāc, ja jau notiek spēle
+    if (room.phase !== "lobby") return "Spēle jau ir sākusies";
+
+    const humans = room.players.filter(p => !p.isBot && !p.spectator);
+
+    // ja ir tikai 1 cilvēks, pievieno tieši VIENU BOT (ja tāda nav)
+    const actives = room.players.filter(p => !p.spectator);
+    const hasBot  = actives.some(p => p.isBot);
+    if (humans.length === 1 && actives.length < 2 && !hasBot) {
       const botId = `bot-${Math.random().toString(36).slice(2,7)}`;
-      room.players.push({ id: botId, cid: botId, nick: "BOT", hand: [], isBot:true, ready:true, connected:true, spectator:false, lastSeen:now() });
-    } else if (!humans.every(p=>p.ready)) return "Ne visi spēlētāji ir gatavi";
-    if (room.players.filter(p=>!p.spectator).length < 2) return "Vajag vismaz 2 spēlētājus";
+      room.players.push({
+        id: botId, cid: botId, nick: "BOT", hand: [],
+        isBot: true, ready: true, connected: true, spectator: false, lastSeen: now()
+      });
+    } else if (humans.length > 1) {
+      if (!humans.every(p=>p.ready)) return "Ne visi spēlētāji ir gatavi";
+    }
+
+    const activePlayersCount = room.players.filter(p => !p.spectator).length;
+    if (activePlayersCount < 2) return "Vajag vismaz 2 spēlētājus";
 
     const { deck, trumpCard, trumpSuit, trumpAvailable, ranks } = initDeck(room.settings.deckMode);
     room.deck=deck; room.trumpCard=trumpCard; room.trumpSuit=trumpSuit; room.trumpAvailable=trumpAvailable; room.ranks=ranks;
-    room.discard=[]; room.table=[]; room.passes=new Set(); room.phase="attack";
+    room.discard=[]; room.table=[]; room.passes=new Set();
+    room.phase="attack";
     room.botStepMs = (botStepMs && botStepMs>=400 && botStepMs<=2000) ? botStepMs : undefined;
     room.lastAction = undefined;
     room.undoUsed = new Set();
@@ -574,7 +590,9 @@ io.on("connection", (socket) => {
     room.boutCount = 0;
     room.comboCandidate = null;
 
-    for (const p of room.players) if (!p.spectator) while (p.hand.length<6){ const c=drawOne(room); if(!c) break; p.hand.push(c); }
+    for (const p of room.players) if (!p.spectator) {
+      while (p.hand.length<6){ const c=drawOne(room); if(!c) break; p.hand.push(c); }
+    }
     chooseFirstAttacker(room);
 
     msg(room, `Trumpis: ${room.trumpCard.r}${room.trumpCard.s} | Kava: ${room.settings.deckMode}`);
