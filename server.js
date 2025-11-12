@@ -73,7 +73,7 @@ function validateAttackAllowed(room, attackerIdx, card) {
 function enforceInvariants(room) {
   if (!room) return;
 
-  // pāru limits: atņem tikai NEaizsegtos uzbrukumus, kurus tikko pievienoja
+  // pāru limits
   const limit = maxPairsAllowed(room);
   if (room.table.length > limit) {
     const la = room.lastAction;
@@ -91,7 +91,7 @@ function enforceInvariants(room) {
     }
   }
 
-  // nepareiza aizsardzība: atgriež aizsargkārti, pāris paliek neaizklāts
+  // nepareiza aizsardzība: atgriež aizsargkārti
   const trump = room.trumpSuit, ranks = room.ranks;
   const defender = room.players[room.defender];
   for (const pr of room.table) {
@@ -476,16 +476,19 @@ io.on("connection", (socket) => {
   const err = (m)=>socket.emit("gameError", m);
   const cid = socket.handshake.auth?.cid || socket.handshake.query?.cid || null;
 
-  // Reconnect
+  // Reconnect (ar hostId atjaunošanu)
   if (cid && sessions.has(cid)){
     const sess = sessions.get(cid);
     const room = rooms.get(sess.roomId);
     if (room){
-      const p = room.players.find(pl=>pl.id===sess.socketId || pl.cid===cid);
+      const p = room.players.find(pl => pl.id === sess.socketId || pl.cid === cid);
       if (p){
+        const oldSocketId = p.id;
         p.id = socket.id; p.connected = true; p.lastSeen = now();
         sessions.set(cid, { socketId: socket.id, roomId: room.id });
         socket.join(room.id);
+        // JA BIJI HOSTS, ATJAUNO HOSTA ID
+        if (room.hostId === oldSocketId) room.hostId = socket.id;
         emitState(room);
       }
     }
@@ -556,33 +559,43 @@ io.on("connection", (socket) => {
     while (room.players[room.defender]?.spectator) room.defender = nextIndex(room.defender, room.players);
   }
 
-  // *** SALABOTA versija — neliec vairāk par 1 BOT, novērš dubultstartu
+  // HOST-override startGame
   function startGame(room, botStepMs){
-    // nesāc, ja jau notiek spēle
     if (room.phase !== "lobby") return "Spēle jau ir sākusies";
 
-    const humans = room.players.filter(p => !p.isBot && !p.spectator);
-
-    // ja ir tikai 1 cilvēks, pievieno tieši VIENU BOT (ja tāda nav)
     const actives = room.players.filter(p => !p.spectator);
-    const hasBot  = actives.some(p => p.isBot);
-    if (humans.length === 1 && actives.length < 2 && !hasBot) {
-      const botId = `bot-${Math.random().toString(36).slice(2,7)}`;
-      room.players.push({
-        id: botId, cid: botId, nick: "BOT", hand: [],
-        isBot: true, ready: true, connected: true, spectator: false, lastSeen: now()
-      });
-    } else if (humans.length > 1) {
-      if (!humans.every(p=>p.ready)) return "Ne visi spēlētāji ir gatavi";
+    const humans  = actives.filter(p => !p.isBot);
+
+    if (humans.length >= 2) {
+      humans.forEach(p => p.ready = true);
+    }
+    if (humans.length === 1) {
+      const hasBot = actives.some(p => p.isBot);
+      if (!hasBot) {
+        const botId = `bot-${Math.random().toString(36).slice(2,7)}`;
+        room.players.push({
+          id: botId, cid: botId, nick: "BOT", hand: [],
+          isBot: true, ready: true, connected: true, spectator: false, lastSeen: now()
+        });
+      }
     }
 
-    const activePlayersCount = room.players.filter(p => !p.spectator).length;
-    if (activePlayersCount < 2) return "Vajag vismaz 2 spēlētājus";
+    if (room.players.filter(p => !p.spectator).length < 2) {
+      return "Vajag vismaz 2 spēlētājus";
+    }
+
+    const activeBots = room.players.filter(p => !p.spectator && p.isBot);
+    if (activeBots.length > 1) {
+      for (let i = 1; i < activeBots.length; i++) {
+        const idx = room.players.indexOf(activeBots[i]);
+        if (idx >= 0) room.players.splice(idx, 1);
+      }
+    }
 
     const { deck, trumpCard, trumpSuit, trumpAvailable, ranks } = initDeck(room.settings.deckMode);
     room.deck=deck; room.trumpCard=trumpCard; room.trumpSuit=trumpSuit; room.trumpAvailable=trumpAvailable; room.ranks=ranks;
-    room.discard=[]; room.table=[]; room.passes=new Set();
-    room.phase="attack";
+
+    room.discard=[]; room.table=[]; room.passes=new Set(); room.phase="attack";
     room.botStepMs = (botStepMs && botStepMs>=400 && botStepMs<=2000) ? botStepMs : undefined;
     room.lastAction = undefined;
     room.undoUsed = new Set();
