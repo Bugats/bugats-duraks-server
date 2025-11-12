@@ -1,46 +1,21 @@
 // =====================
-// Duraks (podkidnoy) — uzlabotais serveris
-// - Rooms, Leaderboard, Reconnect, Undo limitu
-// - BOT soft-delay
-// - DROŠĪBAS JOSTAS: mutex + validācija + auto-repair + rate-limit
-// - RANGI pēc uzvarām (wins-based) + /api/rank(s)
-// - Leaderboard persistēšana JSON failā
-// - Spectator opt-in pievienošanās
-// - Idle room/session cleanup
+// server.js — Duraks (podkidnoy) ar Rooms, Leaderboard, Reconnect, Undo limitu,
+// BOT soft-delay, DROŠĪBAS JOSTĀM (mutex + validācija + auto-repair + rate-limit)
+// + RANGI pēc uzvarām (wins-based) + AUTO-START ja viens gatavs cilvēks.
 // =====================
 
 import express from "express";
 import { createServer } from "http";
 import { Server } from "socket.io";
 import cors from "cors";
-import helmet from "helmet";
-import compression from "compression";
-import fs from "fs";
-
-// ===== ENV =====
-const ORIGINS_ENV = (process.env.ALLOWED_ORIGINS || "*")
-  .split(",")
-  .map(x => x.trim())
-  .filter(Boolean);
-const LB_FILE = process.env.LB_FILE || "./leaderboard.json";
 
 const app = express();
-app.use(helmet({
-  crossOriginEmbedderPolicy: false,
-  contentSecurityPolicy: false
-}));
-app.use(compression());
-app.use(cors({
-  origin: ORIGINS_ENV.includes("*") ? "*" : ORIGINS_ENV,
-  methods: ["GET", "POST"]
-}));
-
+app.use(cors());
+app.use(express.static("public"));
 app.get("/health", (_, res) => res.json({ ok: true }));
 
 const httpServer = createServer(app);
-const io = new Server(httpServer, {
-  cors: { origin: ORIGINS_ENV.includes("*") ? "*" : ORIGINS_ENV, methods: ["GET","POST"] }
-});
+const io = new Server(httpServer, { cors: { origin: "*", methods: ["GET","POST"] } });
 
 /* ===== Konstantes ===== */
 const RANKS_36 = ["6","7","8","9","10","J","Q","K","A"];
@@ -72,8 +47,7 @@ function maxPairsAllowed(room){ const def = room.players[room.defender]; return 
 
 /* ===== Sanitizācija ===== */
 const SAFE_ROOM = /^[a-z0-9\-_]{1,24}$/i;
-// atļaujam tikai burtus/ciparus/underscore/dash/dot/atstarpi; max 20
-const SAFE_NICK = /^[\p{L}\p{N}_\-\.\s]{1,20}$/u;
+const SAFE_NICK = /^.{1,20}$/s;
 function cleanRoomId(x){ x=String(x||"").trim(); if (!SAFE_ROOM.test(x)) throw new Error("Nederīgs istabas ID"); return x; }
 function cleanNick(x){ x=String(x||"").trim(); if (!SAFE_NICK.test(x)) throw new Error("Nederīgs segvārds"); return x; }
 
@@ -86,6 +60,7 @@ function withRoomLock(room, fn) {
   return room._lock;
 }
 
+// Uzbrukuma validācija
 function validateAttackAllowed(room, attackerIdx, card) {
   if (attackerIdx === room.defender) throw new Error("Aizsargs nevar uzbrukt");
   const limit = maxPairsAllowed(room);
@@ -95,10 +70,10 @@ function validateAttackAllowed(room, attackerIdx, card) {
   if (!canAdd) throw new Error("Jāliek tāda paša ranga kārts");
 }
 
+// Auto-repair
 function enforceInvariants(room) {
   const limit = maxPairsAllowed(room);
   if (room.table.length > limit) {
-    console.warn("[Auto-repair] Pāru skaits pārsniedza limitu, atgriežam liekās kārtis uzbrucējam.");
     const la = room.lastAction;
     if (la && (la.type === "attack" || la.type === "attackMany")) {
       const actor = room.players.find(p => p.id === la.playerId);
@@ -115,14 +90,11 @@ function enforceInvariants(room) {
       }
     }
   }
-  if (room.table.length > maxPairsAllowed(room)) {
-    endBoutTook(room);
-  }
+  if (room.table.length > maxPairsAllowed(room)) endBoutTook(room);
 
   const trump = room.trumpSuit, ranks = room.ranks;
   for (const pr of room.table) {
     if (pr.defend && !canCover(pr.attack, pr.defend, trump, ranks)) {
-      console.warn("[Auto-repair] Aizsardzības kārts nebija derīga — atceļam pārklājumu.");
       pr.defend = undefined;
       endBoutTook(room);
       break;
@@ -130,7 +102,7 @@ function enforceInvariants(room) {
   }
 }
 
-// Rate limit (3 darbības sekundē per socket)
+// Rate limit (3 darbības sekundē)
 const lastActionTs = new Map();
 function allowAction(socketId) {
   const t = Date.now();
@@ -146,7 +118,7 @@ function allowAction(socketId) {
 const rooms = new Map();
 const sessions = new Map(); // cid -> { socketId, roomId }
 
-// Leaderboard (in-memory; ar dienas/nedēļas rotāciju)
+// Leaderboard
 const leaderboard = {
   all: new Map(),
   daily: new Map(),
@@ -196,7 +168,7 @@ function asSortedArray(map, key){
   }).slice(0,50);
 }
 
-/* ===== RANGI by WINS ===== */
+/* ===== RANGI pēc uzvarām ===== */
 const RANKS_BY_WINS = [
   { name: "Jaunpienācējs",         min: 0   },
   { name: "Iesācējs",              min: 1   },
@@ -219,7 +191,7 @@ const RANKS_BY_WINS = [
   { name: "Nemirstīgais",          min: 450 },
   { name: "Dievišķais",            min: 600 },
   { name: "Kosmiskais",            min: 800 },
-  { name: "Mūžīgais Meistars",     min: 1000 }
+  { name: "Mūžīgais Meistars",     min: 1000 },
 ];
 function rankForWins(wins) {
   let name = RANKS_BY_WINS[0].name;
@@ -296,21 +268,16 @@ function checkGameEnd(room){
       const afterWins = getTotalWins(cid);
       const beforeRank = rankForWins(beforeWins);
       const afterRank  = rankForWins(afterWins);
-
       if (afterRank !== beforeRank){
         io.to(room.id).emit("rankUpdate", {
           cid, nick: w.nick, wins: afterWins, newRank: afterRank, prevRank: beforeRank
         });
       }
-
       streaks.set(cid, (streaks.get(cid)||0) + 1);
       const s = streaks.get(cid);
       if ([3,5,8].includes(s)) io.to(room.id).emit("streakMilestone", { cid, nick: w.nick, streak: s });
     }
-
-    for (const l of still){
-      streaks.set(l.cid||l.id, 0);
-    }
+    for (const l of still){ streaks.set(l.cid||l.id, 0); }
 
     room.lastAction = undefined;
     room.comboCandidate = null;
@@ -383,7 +350,7 @@ function botOneStep(room){
       A.hand.splice(A.hand.findIndex(c=>c.id===card.id),1);
       room.table.push({ attack: card });
       room.passes.delete(A.id);
-      room.lastAction = { type:"attack", playerId:A.id, cards:[card], pairIndices:[room.table.length-1] };
+      room.lastAction = { type:"attack", playerId: A.id, cards:[card], pairIndices:[room.table.length-1] };
       enforceInvariants(room);
       msg(room, `BOT uzbrūk ar ${card.r}${card.s}`);
       return true;
@@ -456,34 +423,7 @@ function replaceWithBot(room, idx){
   room.players[idx] = { id:`bot-${Math.random().toString(36).slice(2,7)}`, cid:`bot-${Math.random().toString(36).slice(2,5)}`, nick:"BOT", hand:left.hand||[], isBot:true, ready:true, connected:true, spectator:false, lastSeen:now() };
 }
 
-/* ===== Persistēšana ===== */
-function saveLeaderboard(){
-  try {
-    const obj = {
-      all: [...leaderboard.all.values()],
-      daily: [...leaderboard.daily.values()],
-      weekly: [...leaderboard.weekly.values()],
-      lastRotateDay: leaderboard.lastRotateDay,
-      lastRotateWeek: leaderboard.lastRotateWeek
-    };
-    fs.writeFileSync(LB_FILE, JSON.stringify(obj));
-  } catch(e){ console.error("LB save failed:", e); }
-}
-function loadLeaderboard(){
-  try {
-    if (!fs.existsSync(LB_FILE)) return;
-    const obj = JSON.parse(fs.readFileSync(LB_FILE, "utf8"));
-    leaderboard.all = new Map(obj.all.map(x=>[x.cid,x]));
-    leaderboard.daily = new Map(obj.daily.map(x=>[x.cid,x]));
-    leaderboard.weekly = new Map(obj.weekly.map(x=>[x.cid,x]));
-    leaderboard.lastRotateDay = obj.lastRotateDay || leaderboard.lastRotateDay;
-    leaderboard.lastRotateWeek = obj.lastRotateWeek || leaderboard.lastRotateWeek;
-  } catch(e){ console.error("LB load failed:", e); }
-}
-loadLeaderboard();
-setInterval(saveLeaderboard, 30_000);
-
-/* ===== API: Rooms & Leaderboard & Rank ===== */
+/* ===== API ===== */
 app.get("/api/rooms", (_, res)=>{
   const list = [...rooms.values()].map(r=>{
     const playing = r.players.filter(p=>!p.spectator);
@@ -498,7 +438,6 @@ app.get("/api/rooms", (_, res)=>{
   });
   res.json({ rooms: list });
 });
-
 app.get("/api/leaderboard", (req,res)=>{
   rotateBoardsIfNeeded();
   const period = (req.query.period||"all").toString(); // all|daily|weekly
@@ -514,16 +453,11 @@ app.get("/api/leaderboard", (req,res)=>{
   })).slice(0,50);
   res.json({ period, type, rows });
 });
-
 app.get("/api/rank", (req,res)=>{
   const cid = (req.query.cid||"").toString();
   if (!cid) return res.status(400).json({ error: "cid required" });
   const wins = getTotalWins(cid);
   res.json({ cid, wins, rank: rankForWins(wins) });
-});
-
-app.get("/api/ranks-by-wins", (_, res) => {
-  res.json({ ranks: RANKS_BY_WINS });
 });
 
 /* ===== Sockets ===== */
@@ -547,7 +481,7 @@ io.on("connection", (socket) => {
   }
 
   socket.on("createRoom", ({ roomId, nickname, deckMode }) => {
-    if (!allowAction(socket.id)) return err("Pārāk daudz darbību. Mēģini vēlreiz pēc mirkļa.");
+    if (!allowAction(socket.id)) return err("Pārāk daudz darbību. Mēģini vēlreiz.");
     try{ roomId = cleanRoomId(roomId); nickname = cleanNick(nickname||"Spēlētājs"); }catch(e){ return err(e.message); }
     if (rooms.has(roomId)) return err("Istaba jau eksistē");
 
@@ -565,8 +499,7 @@ io.on("connection", (socket) => {
       lastAction: undefined,
       undoUsed: new Set(),
       createdAt: now(), startedAt: null, boutCount: 0,
-      comboCandidate: null,
-      lastSeenAt: now()
+      comboCandidate: null
     };
     rooms.set(roomId, room);
     if (cid) sessions.set(cid, { socketId: socket.id, roomId: roomId });
@@ -575,20 +508,24 @@ io.on("connection", (socket) => {
   });
 
   socket.on("joinRoom", ({ roomId, nickname, spec }) => {
-    if (!allowAction(socket.id)) return err("Pārāk daudz darbību. Mēģini vēlreiz pēc mirkļa.");
+    if (!allowAction(socket.id)) return err("Pārāk daudz darbību. Mēģini vēlreiz.");
     try{ roomId = cleanRoomId(roomId); nickname = cleanNick(nickname||"Spēlētājs"); }catch(e){ return err(e.message); }
     const room = rooms.get(roomId);
     if (!room) return err("Istaba nav atrasta");
     if (room.phase !== "lobby") return err("Spēle jau sākusies");
 
+    let spectator = false;
+    if (spec === 1 || spec === true) spectator = true;
     const playing = room.players.filter(p=>!p.spectator).length;
-    const spectator = spec ? true : (playing >= MAX_PLAYERS);
+    if (!spectator && playing >= MAX_PLAYERS) spectator = true;
+
     room.players.push({ id: socket.id, cid: cid||socket.id, nick: nickname, hand: [], isBot:false, ready:false, connected:true, spectator, lastSeen:now() });
     if (cid) sessions.set(cid, { socketId: socket.id, roomId });
     socket.join(roomId);
     emitState(room);
   });
 
+  // *** AUTO-START mehānisms šeit ***
   socket.on("toggleReady", ({ roomId }) => {
     if (!allowAction(socket.id)) return err("Pārāk daudz darbību.");
     try{ roomId = cleanRoomId(roomId); }catch(e){ return err(e.message); }
@@ -597,7 +534,15 @@ io.on("connection", (socket) => {
     const p = room.players.find(pl=>pl.id===socket.id);
     if (!p || p.spectator) return;
     p.ready = !p.ready;
-    emitState(room);
+
+    // Ja istabā ir TIKAI 1 cilvēks un viņš ir gatavs → start ar BOT
+    const humans = room.players.filter(x => !x.isBot && !x.spectator);
+    if (humans.length === 1 && humans[0].ready) {
+      const problem = startGame(room, room.botStepMs);
+      if (problem) err(problem);
+    } else {
+      emitState(room);
+    }
   });
 
   function chooseFirstAttacker(room){
@@ -765,7 +710,6 @@ io.on("connection", (socket) => {
               count: room.comboCandidate.count
             });
           }
-
           if (!checkGameEnd(room)) emitState(room);
         } else {
           emitState(room);
@@ -919,25 +863,6 @@ io.on("connection", (socket) => {
     }
   });
 });
-
-/* ===== Idle cleanup (ik pēc 2 min) ===== */
-setInterval(() => {
-  const T = Date.now();
-  for (const [cid, sess] of sessions){
-    const alive = io.sockets.sockets.get(sess.socketId);
-    if (!alive) sessions.delete(cid);
-  }
-  for (const [rid, room] of rooms){
-    const anyConnected = room.players.some(p => p.connected);
-    const empty = room.players.length === 0;
-    const tooOld = (T - (room.lastSeenAt || room.createdAt)) > 5*60_000;
-    if ((empty || !anyConnected) && tooOld){
-      rooms.delete(rid);
-    } else {
-      room.lastSeenAt = T;
-    }
-  }
-}, 120_000);
 
 const PORT = process.env.PORT || 3000;
 httpServer.listen(PORT, () => console.log("Duraks serveris klausās uz porta " + PORT));
