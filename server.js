@@ -1,7 +1,7 @@
 // =====================
-// server.js — Duraks (podkidnoy) ar Rooms, Leaderboard, Reconnect, Undo limitu,
-// BOT soft-delay, DROŠĪBAS JOSTĀM (mutex + validācija + auto-repair + rate-limit)
-// + RANGI pēc uzvarām (wins-based) + AUTO-START ja viens gatavs cilvēks.
+// Duraks (podkidnoy) — Rooms, Leaderboard, Reconnect, Undo, BOT,
+// mutex + validācija + auto-repair + rate-limit,
+// RANGU SISTĒMA pēc uzvarām, LATE-SPECTATE pievienošanās.
 // =====================
 
 import express from "express";
@@ -11,7 +11,6 @@ import cors from "cors";
 
 const app = express();
 app.use(cors());
-app.use(express.static("public"));
 app.get("/health", (_, res) => res.json({ ok: true }));
 
 const httpServer = createServer(app);
@@ -59,8 +58,6 @@ function withRoomLock(room, fn) {
   });
   return room._lock;
 }
-
-// Uzbrukuma validācija
 function validateAttackAllowed(room, attackerIdx, card) {
   if (attackerIdx === room.defender) throw new Error("Aizsargs nevar uzbrukt");
   const limit = maxPairsAllowed(room);
@@ -69,8 +66,6 @@ function validateAttackAllowed(room, attackerIdx, card) {
   const canAdd = room.table.length === 0 || ranksOnTable.has(card.r);
   if (!canAdd) throw new Error("Jāliek tāda paša ranga kārts");
 }
-
-// Auto-repair
 function enforceInvariants(room) {
   const limit = maxPairsAllowed(room);
   if (room.table.length > limit) {
@@ -90,7 +85,9 @@ function enforceInvariants(room) {
       }
     }
   }
-  if (room.table.length > maxPairsAllowed(room)) endBoutTook(room);
+  if (room.table.length > maxPairsAllowed(room)) {
+    endBoutTook(room);
+  }
 
   const trump = room.trumpSuit, ranks = room.ranks;
   for (const pr of room.table) {
@@ -101,8 +98,6 @@ function enforceInvariants(room) {
     }
   }
 }
-
-// Rate limit (3 darbības sekundē)
 const lastActionTs = new Map();
 function allowAction(socketId) {
   const t = Date.now();
@@ -118,7 +113,7 @@ function allowAction(socketId) {
 const rooms = new Map();
 const sessions = new Map(); // cid -> { socketId, roomId }
 
-// Leaderboard
+/* Leaderboard */
 const leaderboard = {
   all: new Map(),
   daily: new Map(),
@@ -168,41 +163,34 @@ function asSortedArray(map, key){
   }).slice(0,50);
 }
 
-/* ===== RANGI pēc uzvarām ===== */
+/* ===== Rangi pēc uzvarām ===== */
 const RANKS_BY_WINS = [
-  { name: "Jaunpienācējs",         min: 0   },
-  { name: "Iesācējs",              min: 1   },
-  { name: "Kāršu Skolnieks",       min: 3   },
-  { name: "Gudrinieks",            min: 5   },
-  { name: "Viltīgais",             min: 8   },
-  { name: "Stratēģis",             min: 12  },
-  { name: "Mūrnieks",              min: 17  },
-  { name: "Komandieris",           min: 23  },
-  { name: "Kapteinis",             min: 30  },
-  { name: "Taktikas Lietpratējs",  min: 40  },
-  { name: "Dūzis",                 min: 55  },
-  { name: "Meistars",              min: 75  },
-  { name: "Lielmeistars",          min: 100 },
-  { name: "Virsmeistars",          min: 130 },
-  { name: "Grandmeistars",         min: 170 },
-  { name: "Neuzvaramais",          min: 220 },
-  { name: "Leģenda",               min: 280 },
-  { name: "Teiksmainais",          min: 350 },
-  { name: "Nemirstīgais",          min: 450 },
-  { name: "Dievišķais",            min: 600 },
-  { name: "Kosmiskais",            min: 800 },
-  { name: "Mūžīgais Meistars",     min: 1000 },
+  { name: "Jaunpienācējs", min: 0 },
+  { name: "Iesācējs", min: 1 },
+  { name: "Kāršu Skolnieks", min: 3 },
+  { name: "Gudrinieks", min: 5 },
+  { name: "Viltīgais", min: 8 },
+  { name: "Stratēģis", min: 12 },
+  { name: "Mūrnieks", min: 17 },
+  { name: "Komandieris", min: 23 },
+  { name: "Kapteinis", min: 30 },
+  { name: "Taktikas Lietpratējs", min: 40 },
+  { name: "Dūzis", min: 55 },
+  { name: "Meistars", min: 75 },
+  { name: "Lielmeistars", min: 100 },
+  { name: "Virsmeistars", min: 130 },
+  { name: "Grandmeistars", min: 170 },
+  { name: "Neuzvaramais", min: 220 },
+  { name: "Leģenda", min: 280 },
+  { name: "Teiksmainais", min: 350 },
+  { name: "Nemirstīgais", min: 450 },
+  { name: "Dievišķais", min: 600 },
+  { name: "Kosmiskais", min: 800 },
+  { name: "Mūžīgais Meistars", min: 1000 },
 ];
-function rankForWins(wins) {
-  let name = RANKS_BY_WINS[0].name;
-  for (const r of RANKS_BY_WINS) if (wins >= r.min) name = r.name;
-  return name;
-}
-function getTotalWins(cid) {
-  const row = leaderboard.all.get(cid);
-  return row?.wins || 0;
-}
-const streaks = new Map(); // cid -> win streak
+function rankForWins(wins) { let name = RANKS_BY_WINS[0].name; for (const r of RANKS_BY_WINS) if (wins >= r.min) name = r.name; return name; }
+function getTotalWins(cid) { const row = leaderboard.all.get(cid); return row?.wins || 0; }
+const streaks = new Map();
 
 /* ===== Deal/Flow ===== */
 function drawOne(room){
@@ -259,12 +247,10 @@ function checkGameEnd(room){
     for (const w of winners){
       const cid = w.cid || w.id;
       const beforeWins = getTotalWins(cid);
-
       bumpStats(cid, w.nick, (s)=>{ 
         s.wins = (s.wins||0)+1; 
         if (s.fastestMs==null || dur < s.fastestMs) s.fastestMs = dur; 
       });
-
       const afterWins = getTotalWins(cid);
       const beforeRank = rankForWins(beforeWins);
       const afterRank  = rankForWins(afterWins);
@@ -278,7 +264,6 @@ function checkGameEnd(room){
       if ([3,5,8].includes(s)) io.to(room.id).emit("streakMilestone", { cid, nick: w.nick, streak: s });
     }
     for (const l of still){ streaks.set(l.cid||l.id, 0); }
-
     room.lastAction = undefined;
     room.comboCandidate = null;
     return true;
@@ -335,13 +320,11 @@ function botOneStep(room){
     const ranksOnTable = tableRanks(room);
     const spaceLeft = maxPairsAllowed(room) - room.table.length;
     if (spaceLeft <= 0){ room.passes.add(A.id); room.lastAction=undefined; return true; }
-
     const hand = A.hand.slice().sort((a,b)=>{
       const at=(a.s===trump), bt=(b.s===trump);
       if (at!==bt) return at-bt;
       return rankValue(a.r,ranks)-rankValue(b.r,ranks);
     });
-
     let card=null;
     if (room.table.length===0) card = hand.find(c=>c.s!==trump) || hand[0];
     else card = hand.find(c=>ranksOnTable.has(c.r)) || null;
@@ -350,7 +333,7 @@ function botOneStep(room){
       A.hand.splice(A.hand.findIndex(c=>c.id===card.id),1);
       room.table.push({ attack: card });
       room.passes.delete(A.id);
-      room.lastAction = { type:"attack", playerId: A.id, cards:[card], pairIndices:[room.table.length-1] };
+      room.lastAction = { type:"attack", playerId:A.id, cards:[card], pairIndices:[room.table.length-1] };
       enforceInvariants(room);
       msg(room, `BOT uzbrūk ar ${card.r}${card.s}`);
       return true;
@@ -440,14 +423,12 @@ app.get("/api/rooms", (_, res)=>{
 });
 app.get("/api/leaderboard", (req,res)=>{
   rotateBoardsIfNeeded();
-  const period = (req.query.period||"all").toString(); // all|daily|weekly
-  const type   = (req.query.type||"wins").toString();  // wins|clean|fastest
+  const period = (req.query.period||"all").toString();
+  const type   = (req.query.type||"wins").toString();
   const src = leaderboard[period]||leaderboard.all;
-
   let key = "wins";
   if (type==="clean") key="cleanDefends";
   if (type==="fastest") key="fastestMs";
-
   const rows = asSortedArray(src, key).map(s=>({
     cid:s.cid, nick:s.lastNick, wins:s.wins||0, clean:s.cleanDefends||0, fastestMs:s.fastestMs
   })).slice(0,50);
@@ -481,7 +462,7 @@ io.on("connection", (socket) => {
   }
 
   socket.on("createRoom", ({ roomId, nickname, deckMode }) => {
-    if (!allowAction(socket.id)) return err("Pārāk daudz darbību. Mēģini vēlreiz.");
+    if (!allowAction(socket.id)) return err("Pārāk daudz darbību. Mēģini vēlreiz pēc mirkļa.");
     try{ roomId = cleanRoomId(roomId); nickname = cleanNick(nickname||"Spēlētājs"); }catch(e){ return err(e.message); }
     if (rooms.has(roomId)) return err("Istaba jau eksistē");
 
@@ -507,17 +488,15 @@ io.on("connection", (socket) => {
     emitState(room);
   });
 
-  socket.on("joinRoom", ({ roomId, nickname, spec }) => {
-    if (!allowAction(socket.id)) return err("Pārāk daudz darbību. Mēģini vēlreiz.");
+  // LATE-SPECTATE: ja spēle sākusies, ļaujam pievienoties kā skatītājam
+  socket.on("joinRoom", ({ roomId, nickname }) => {
+    if (!allowAction(socket.id)) return err("Pārāk daudz darbību. Mēģini vēlreiz pēc mirkļa.");
     try{ roomId = cleanRoomId(roomId); nickname = cleanNick(nickname||"Spēlētājs"); }catch(e){ return err(e.message); }
     const room = rooms.get(roomId);
     if (!room) return err("Istaba nav atrasta");
-    if (room.phase !== "lobby") return err("Spēle jau sākusies");
 
-    let spectator = false;
-    if (spec === 1 || spec === true) spectator = true;
     const playing = room.players.filter(p=>!p.spectator).length;
-    if (!spectator && playing >= MAX_PLAYERS) spectator = true;
+    const spectator = (room.phase !== "lobby") || (playing >= MAX_PLAYERS);
 
     room.players.push({ id: socket.id, cid: cid||socket.id, nick: nickname, hand: [], isBot:false, ready:false, connected:true, spectator, lastSeen:now() });
     if (cid) sessions.set(cid, { socketId: socket.id, roomId });
@@ -525,7 +504,6 @@ io.on("connection", (socket) => {
     emitState(room);
   });
 
-  // *** AUTO-START mehānisms šeit ***
   socket.on("toggleReady", ({ roomId }) => {
     if (!allowAction(socket.id)) return err("Pārāk daudz darbību.");
     try{ roomId = cleanRoomId(roomId); }catch(e){ return err(e.message); }
@@ -534,15 +512,7 @@ io.on("connection", (socket) => {
     const p = room.players.find(pl=>pl.id===socket.id);
     if (!p || p.spectator) return;
     p.ready = !p.ready;
-
-    // Ja istabā ir TIKAI 1 cilvēks un viņš ir gatavs → start ar BOT
-    const humans = room.players.filter(x => !x.isBot && !x.spectator);
-    if (humans.length === 1 && humans[0].ready) {
-      const problem = startGame(room, room.botStepMs);
-      if (problem) err(problem);
-    } else {
-      emitState(room);
-    }
+    emitState(room);
   });
 
   function chooseFirstAttacker(room){
@@ -703,12 +673,8 @@ io.on("connection", (socket) => {
           const defender = room.players[room.defender];
           bumpStats(defender.cid||defender.id, defender.nick, (s)=>{ s.cleanDefends = (s.cleanDefends||0)+1; });
           endBoutDefended(room);
-
           if (room.comboCandidate && room.comboCandidate.boutIndex === (room.boutCount - 1)){
-            io.to(room.id).emit("comboCounted", {
-              attackerId: room.comboCandidate.attackerId,
-              count: room.comboCandidate.count
-            });
+            io.to(room.id).emit("comboCounted", { attackerId: room.comboCandidate.attackerId, count: room.comboCandidate.count });
           }
           if (!checkGameEnd(room)) emitState(room);
         } else {
