@@ -1,7 +1,7 @@
 // =====================
 // server.js — Duraks (podkidnoy) ar Rooms, Leaderboard, Reconnect, Undo limitu,
-// BOT soft-delay, DROŠĪBAS JOSTĀM (mutex + validācija + auto-repair + rate-limit)
-// un JAUNAIS RANGU SISTĒMAS MODELIS — RANGI PĒC UZVARĀM (wins-based).
+// BOT soft-delay, DROŠĪBAS JOSTĀM (mutex + validācija + rate-limit),
+// RANGI PĒC UZVARĀM (wins-based) un labots invariantu sargs (bez auto-ņemšanas).
 // =====================
 
 import express from "express";
@@ -46,7 +46,7 @@ function maxPairsAllowed(room){ const def = room.players[room.defender]; return 
 
 /* ===== Sanitizācija ===== */
 const SAFE_ROOM = /^[a-z0-9\-_]{1,24}$/i;
-const SAFE_NICK = /^.{1,20}$/s; // 1..20 jebkuri redzamie simboli
+const SAFE_NICK = /^.{1,20}$/s;
 function cleanRoomId(x){ x=String(x||"").trim(); if (!SAFE_ROOM.test(x)) throw new Error("Nederīgs istabas ID"); return x; }
 function cleanNick(x){ x=String(x||"").trim(); if (!SAFE_NICK.test(x)) throw new Error("Nederīgs segvārds"); return x; }
 
@@ -58,6 +58,8 @@ function withRoomLock(room, fn) {
   });
   return room._lock;
 }
+
+// Stingra uzbrukuma validācija
 function validateAttackAllowed(room, attackerIdx, card) {
   if (attackerIdx === room.defender) throw new Error("Aizsargs nevar uzbrukt");
   const limit = maxPairsAllowed(room);
@@ -67,7 +69,40 @@ function validateAttackAllowed(room, attackerIdx, card) {
   if (!canAdd) throw new Error("Jāliek tāda paša ranga kārts");
 }
 
-/* ===== Rate limit ===== */
+// **Labotais** invariantu sargs — nebeidz bauta un neliek ņemt
+function enforceInvariants(room) {
+  if (!room) return;
+
+  // pāru limits: atņem tikai NEaizsegtos uzbrukumus, kurus tikko pievienoja
+  const limit = maxPairsAllowed(room);
+  if (room.table.length > limit) {
+    const la = room.lastAction;
+    if (la && (la.type === "attack" || la.type === "attackMany")) {
+      const actor = room.players.find(p => p.id === la.playerId);
+      if (actor) {
+        for (let i = room.table.length - 1; i >= 0 && room.table.length > limit; i--) {
+          const pr = room.table[i];
+          if (!pr.defend) {
+            actor.hand.push(pr.attack);
+            room.table.splice(i, 1);
+          }
+        }
+      }
+    }
+  }
+
+  // nepareiza aizsardzība: atgriež aizsargkārti atpakaļ aizsargam, pāris paliek neaizklāts
+  const trump = room.trumpSuit, ranks = room.ranks;
+  const defender = room.players[room.defender];
+  for (const pr of room.table) {
+    if (pr.defend && !canCover(pr.attack, pr.defend, trump, ranks)) {
+      if (defender) defender.hand.push(pr.defend);
+      pr.defend = undefined;
+    }
+  }
+}
+
+// Rate limit (3 darbības/sek per socket)
 const lastActionTs = new Map();
 function allowAction(socketId) {
   const t = Date.now();
@@ -83,7 +118,7 @@ function allowAction(socketId) {
 const rooms = new Map();
 const sessions = new Map(); // cid -> { socketId, roomId }
 
-/* ===== Leaderboard ===== */
+// Leaderboard
 const leaderboard = {
   all: new Map(),
   daily: new Map(),
@@ -133,7 +168,7 @@ function asSortedArray(map, key){
   }).slice(0,50);
 }
 
-/* ===== NEW: RANKS by WINS ===== */
+/* ===== RANGI pēc uzvarām ===== */
 const RANKS_BY_WINS = [
   { name: "Jaunpienācējs",         min: 0   },
   { name: "Iesācējs",              min: 1   },
@@ -167,7 +202,9 @@ function getTotalWins(cid) {
   const row = leaderboard.all.get(cid);
   return row?.wins || 0;
 }
-const streaks = new Map(); // cid -> current win-streak
+
+// Uzvaru sērijas
+const streaks = new Map();
 
 /* ===== Deal/Flow ===== */
 function drawOne(room){
@@ -210,7 +247,7 @@ function endBoutTook(room){
   room.lastAction = undefined;
   room.phase = "attack";
   room.boutCount++;
-  room.comboCandidate = null; 
+  room.comboCandidate = null;
 }
 function checkGameEnd(room){
   const act = activePlayers(room);
@@ -341,13 +378,15 @@ function botOneStep(room){
 }
 function runBot(room){
   if (room.phase !== "attack") return;
-  const did = botOneStep(room);
+  let did = false;
+  try { did = botOneStep(room); }
+  catch(e){ console.error("BOT step error:", e); did = false; }
   emitState(room);
   if (checkGameEnd(room)) return;
   if (did && botShouldPlay(room)) schedule(room, ()=>runBot(room), botThinkDelay(room));
 }
 
-/* ===== REDZAMĪBA ===== */
+/* ===== Redzamība ===== */
 function visibleState(room, sid){
   const me = room.players.find(p=>p.id===sid);
   return {
@@ -565,7 +604,6 @@ io.on("connection", (socket) => {
     if (problem) return err(problem);
   });
 
-  // Host var dzēst istabu
   socket.on("deleteRoom", ({ roomId }) => {
     try{ roomId = cleanRoomId(roomId); }catch(e){ return err(e.message); }
     const room = rooms.get(roomId);
@@ -828,5 +866,3 @@ io.on("connection", (socket) => {
 
 const PORT = process.env.PORT || 3000;
 httpServer.listen(PORT, () => console.log("Duraks serveris klausās uz porta " + PORT));
-
-/* ====== BEIGAS ====== */
