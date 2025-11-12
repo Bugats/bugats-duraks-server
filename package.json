@@ -1,7 +1,7 @@
 {
   "name": "duraks-podkidnoy-bugats-baseline",
   "version": "1.0.2",
-  "description": "Duraks (podkidnoy) ar Rooms, 6 seats, Ready/Start, BOT, reconnect, undo, mutex, leaderboard, profile→hub plūsmu",
+  "description": "Duraks (podkidnoy) ar Rooms, Leaderboard, Reconnect, Undo, BOT, mutex+validācija+auto-repair+rate-limit, rangu sistēma, late-spectate",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -13,8 +13,6 @@
   "dependencies": {
     "cors": "^2.8.5",
     "express": "^4.19.2",
-    "helmet": "^7.1.0",
-    "socket.io": "^4.7.5",
-    "uuid": "^9.0.1"
+    "socket.io": "^4.7.5"
   }
 }
