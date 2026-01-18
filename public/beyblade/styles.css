@@ -1,0 +1,123 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: #050505;
+  color: #f3f3f3;
+  font-family: "Segoe UI", system-ui, sans-serif;
+}
+
+#app {
+  position: relative;
+  height: 100%;
+  width: 100%;
+}
+
+#arena {
+  display: block;
+  width: 100vw;
+  height: 100vh;
+}
+
+#hud {
+  position: fixed;
+  top: 16px;
+  left: 16px;
+  max-width: 420px;
+  padding: 16px;
+  border-radius: 12px;
+  background: rgba(12, 12, 12, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(6px);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.row.header {
+  justify-content: space-between;
+}
+
+.title {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.status {
+  font-size: 12px;
+  color: #9ad6ff;
+}
+
+.row.small {
+  font-size: 12px;
+  color: #d0d0d0;
+}
+
+.commands {
+  line-height: 1.4;
+}
+
+input,
+button {
+  font-size: 12px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(30, 30, 30, 0.9);
+  color: #f3f3f3;
+}
+
+input {
+  flex: 1;
+  min-width: 140px;
+}
+
+button {
+  cursor: pointer;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+button:hover {
+  border-color: rgba(0, 242, 234, 0.8);
+}
+
+#events {
+  margin-top: 10px;
+  max-height: 160px;
+  overflow: hidden;
+  font-size: 12px;
+  display: grid;
+  gap: 4px;
+}
+
+#events .event {
+  padding: 4px 6px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+#events .event.spawn {
+  border-left: 3px solid #00f2ea;
+}
+
+#events .event.boost {
+  border-left: 3px solid #ff0050;
+}
+
+#events .event.gift {
+  border-left: 3px solid #ffd166;
+}
+
+#events .event.out {
+  border-left: 3px solid #ff8c42;
+}

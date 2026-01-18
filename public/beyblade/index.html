@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Beyblade Arena</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="arena"></canvas>
+      <div id="hud">
+        <div class="row header">
+          <div class="title">Beyblade Arena</div>
+          <div id="status" class="status">Connecting...</div>
+        </div>
+        <div class="row small" id="stats"></div>
+        <div class="row small commands">
+          Chat commands: !join !left !right !up !down !boost !spin !color !name
+        </div>
+        <div class="row controls">
+          <input id="viewer-name" type="text" maxlength="22" placeholder="Your name" />
+          <button id="save-name" type="button">Save name</button>
+          <button id="spawn" type="button">Spawn my beyblade</button>
+          <button id="boost" type="button">Boost</button>
+        </div>
+        <div class="row input">
+          <input id="command" type="text" placeholder="Send command (e.g. !boost)" />
+          <button id="send" type="button">Send</button>
+        </div>
+        <div id="events"></div>
+      </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script type="module" src="arena.js"></script>
+  </body>
+</html>

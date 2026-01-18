@@ -7,12 +7,18 @@ import express from "express";
 import { createServer } from "http";
 import { Server } from "socket.io";
 import cors from "cors";
+import path from "path";
+import { fileURLToPath } from "url";
 
 // ---- CORS tikai thezone.lv
 const ORIGIN = "https://thezone.lv";
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 const app = express();
 app.set("trust proxy", 1);
+app.use(express.json({ limit: "1mb" }));
 app.use(cors({
   origin: ORIGIN,
   methods: ["GET", "POST", "OPTIONS"],
@@ -25,6 +31,7 @@ app.options("*", cors({
   allowedHeaders: ["Content-Type", "Authorization"],
   credentials: false,
 }));
+app.use("/beyblade", express.static(path.join(__dirname, "public/beyblade")));
 
 app.get("/health", (_, res) => res.json({ ok: true }));
 
@@ -35,6 +42,480 @@ const io = new Server(httpServer, {
   serveClient: true,   // lai var ielādēt /socket.io/socket.io.js no šī servera
   path: "/socket.io",
 });
+
+/* ===== Beyblade Arena (TikTok chat-controlled) ===== */
+const BEYBLADE_INGEST_SECRET = process.env.BEYBLADE_INGEST_SECRET || "";
+const BEYBLADE_MAX_BLADES = Number(process.env.BEYBLADE_MAX_BLADES || 24);
+const BEYBLADE_TICK_MS = Number(process.env.BEYBLADE_TICK_MS || 50);
+const BEYBLADE_COMMAND_RATE_MS = Number(process.env.BEYBLADE_COMMAND_RATE_MS || 350);
+const BEYBLADE_COIN_TO_USD = Number(process.env.BEYBLADE_COIN_TO_USD || 0.005);
+const BEYBLADE_COLORS = ["#0f0f0f", "#1a1a1a", "#00f2ea", "#ff0050", "#ffffff", "#fbb1d5", "#ffd166", "#6a4c93", "#2f9e44"];
+const SAFE_MAX_BLADES = Number.isFinite(BEYBLADE_MAX_BLADES) ? BEYBLADE_MAX_BLADES : 24;
+const SAFE_TICK_MS = Number.isFinite(BEYBLADE_TICK_MS) ? BEYBLADE_TICK_MS : 50;
+const SAFE_COMMAND_RATE_MS = Number.isFinite(BEYBLADE_COMMAND_RATE_MS) ? BEYBLADE_COMMAND_RATE_MS : 350;
+const SAFE_COIN_TO_USD = Number.isFinite(BEYBLADE_COIN_TO_USD) ? BEYBLADE_COIN_TO_USD : 0.005;
+
+const beybladeIo = io.of("/beyblade");
+const arena = {
+  radius: 1,
+  friction: 0.985,
+  bounce: 0.9,
+  spinDecay: 0.992,
+  maxSpeed: 0.04,
+  blades: new Map(),
+  viewers: new Map(),
+  events: [],
+  totals: { coins: 0, gifts: 0, revenueUsd: 0 }
+};
+
+const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+const safeText = (value, max = 22) => String(value || "").replace(/[<>]/g, "").trim().slice(0, max);
+const asNumber = (value, fallback) => {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+};
+
+function hashString(text) {
+  let hash = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    hash = (hash * 31 + text.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash);
+}
+
+function normalizeViewerId(userId, userName) {
+  const raw = String(userId || userName || "");
+  const base = raw.toLowerCase().replace(/[^a-z0-9_-]/g, "");
+  if (base) return base;
+  const fallback = raw || Math.random().toString(36);
+  return `viewer-${hashString(fallback).toString(36)}`;
+}
+
+function colorForViewer(viewerId) {
+  const idx = hashString(viewerId) % BEYBLADE_COLORS.length;
+  return BEYBLADE_COLORS[idx];
+}
+
+function pushArenaEvent(type, message) {
+  arena.events.push({
+    id: `ev-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    ts: Date.now(),
+    type,
+    message
+  });
+  if (arena.events.length > 20) arena.events.shift();
+}
+
+function getOrCreateViewer(viewerId, viewerName) {
+  const name = safeText(viewerName || viewerId || "Viewer");
+  let viewer = arena.viewers.get(viewerId);
+  if (!viewer) {
+    viewer = {
+      id: viewerId,
+      name,
+      color: colorForViewer(viewerId),
+      coins: 0,
+      gifts: 0,
+      lastCommandAt: 0,
+      lastSeen: Date.now()
+    };
+    arena.viewers.set(viewerId, viewer);
+  } else if (name && name !== viewer.name) {
+    viewer.name = name;
+  }
+  viewer.lastSeen = Date.now();
+  return viewer;
+}
+
+function dropOldestBlade() {
+  let oldest = null;
+  for (const blade of arena.blades.values()) {
+    if (!oldest || blade.createdAt < oldest.createdAt) oldest = blade;
+  }
+  if (oldest) {
+    arena.blades.delete(oldest.id);
+    pushArenaEvent("system", `Blade limit reached. Removing ${oldest.name}.`);
+  }
+}
+
+function createBlade(viewer) {
+  if (arena.blades.size >= Math.max(2, SAFE_MAX_BLADES)) dropOldestBlade();
+  const angle = Math.random() * Math.PI * 2;
+  const distance = 0.2 + Math.random() * 0.55;
+  const blade = {
+    id: viewer.id,
+    ownerId: viewer.id,
+    name: viewer.name,
+    color: viewer.color,
+    x: Math.cos(angle) * distance,
+    y: Math.sin(angle) * distance,
+    vx: (Math.random() - 0.5) * 0.02,
+    vy: (Math.random() - 0.5) * 0.02,
+    spin: 0.8 + Math.random() * 0.4,
+    energy: 1,
+    radius: 0.085,
+    createdAt: Date.now(),
+    lastActionAt: Date.now()
+  };
+  arena.blades.set(blade.id, blade);
+  pushArenaEvent("spawn", `${viewer.name} joined the arena.`);
+  return blade;
+}
+
+function ensureBlade(viewer) {
+  const existing = arena.blades.get(viewer.id);
+  if (existing) return existing;
+  return createBlade(viewer);
+}
+
+function allowViewerCommand(viewer) {
+  const now = Date.now();
+  if (now - viewer.lastCommandAt < SAFE_COMMAND_RATE_MS) return false;
+  viewer.lastCommandAt = now;
+  return true;
+}
+
+function parseChatCommand(text) {
+  const trimmed = String(text || "").trim();
+  if (!trimmed.startsWith("!")) return null;
+  const lower = trimmed.toLowerCase();
+  const [cmd, ...rest] = lower.slice(1).split(/\s+/);
+  const rawArgs = trimmed.split(/\s+/).slice(1).join(" ");
+  switch (cmd) {
+    case "join":
+    case "spawn":
+    case "beyblade":
+      return { type: "spawn" };
+    case "boost":
+    case "dash":
+      return { type: "boost", magnitude: asNumber(rest[0], 1) };
+    case "spin":
+      return { type: "spin" };
+    case "left":
+    case "l":
+      return { type: "nudge", dx: -1, dy: 0 };
+    case "right":
+    case "r":
+      return { type: "nudge", dx: 1, dy: 0 };
+    case "up":
+    case "u":
+      return { type: "nudge", dx: 0, dy: -1 };
+    case "down":
+    case "d":
+      return { type: "nudge", dx: 0, dy: 1 };
+    case "stop":
+      return { type: "stop" };
+    case "aim":
+    case "angle": {
+      const deg = asNumber(rest[0], null);
+      if (deg == null) return null;
+      return { type: "aim", angle: deg };
+    }
+    case "color":
+      return { type: "color", value: rest[0] || "" };
+    case "name":
+      return { type: "name", value: rawArgs };
+    default:
+      return null;
+  }
+}
+
+function normalizeColor(value) {
+  const color = String(value || "").toLowerCase();
+  const allowed = {
+    red: "#ff4d4d",
+    blue: "#4d79ff",
+    green: "#34c759",
+    yellow: "#ffd166",
+    purple: "#6a4c93",
+    orange: "#ff8c42",
+    pink: "#fbb1d5",
+    cyan: "#00f2ea",
+    white: "#ffffff",
+    black: "#0f0f0f"
+  };
+  if (allowed[color]) return allowed[color];
+  if (/^#[0-9a-f]{6}$/i.test(color)) return color;
+  return null;
+}
+
+function applyImpulse(blade, dx, dy, spinBoost = 0, energyBoost = 0) {
+  blade.vx = clamp(blade.vx + dx, -arena.maxSpeed, arena.maxSpeed);
+  blade.vy = clamp(blade.vy + dy, -arena.maxSpeed, arena.maxSpeed);
+  blade.spin = clamp(blade.spin + spinBoost, 0, 2.5);
+  blade.energy = clamp(blade.energy + energyBoost, 0, 2);
+  blade.lastActionAt = Date.now();
+}
+
+function applyCommand(viewer, command, source) {
+  if (!command) return;
+  if (command.type !== "spawn" && !allowViewerCommand(viewer)) return;
+  const blade = command.type === "spawn" ? ensureBlade(viewer) : ensureBlade(viewer);
+
+  switch (command.type) {
+    case "spawn":
+      blade.spin = 1.2;
+      blade.energy = 1;
+      applyImpulse(blade, (Math.random() - 0.5) * 0.03, (Math.random() - 0.5) * 0.03, 0.4, 0.2);
+      pushArenaEvent("spawn", `${viewer.name} launched a beyblade (${source}).`);
+      break;
+    case "boost": {
+      const magnitude = clamp(command.magnitude || 1, 0.5, 3);
+      const hasDirection = Math.abs(blade.vx) > 0.001 || Math.abs(blade.vy) > 0.001;
+      const angle = hasDirection ? Math.atan2(blade.vy, blade.vx) : Math.random() * Math.PI * 2;
+      const force = 0.018 * magnitude;
+      applyImpulse(blade, Math.cos(angle) * force, Math.sin(angle) * force, 0.3 * magnitude, 0.15 * magnitude);
+      pushArenaEvent("boost", `${viewer.name} boosted.`);
+      break;
+    }
+    case "spin":
+      applyImpulse(blade, 0, 0, 0.5, 0.2);
+      pushArenaEvent("spin", `${viewer.name} added spin.`);
+      break;
+    case "nudge": {
+      const nudge = 0.012;
+      applyImpulse(blade, (command.dx || 0) * nudge, (command.dy || 0) * nudge, 0.05, 0.02);
+      break;
+    }
+    case "aim": {
+      const angle = ((command.angle || 0) * Math.PI) / 180;
+      const force = 0.02;
+      applyImpulse(blade, Math.cos(angle) * force, Math.sin(angle) * force, 0.1, 0.05);
+      pushArenaEvent("aim", `${viewer.name} dashed at ${Math.round(command.angle)}°.`);
+      break;
+    }
+    case "stop":
+      blade.vx = 0;
+      blade.vy = 0;
+      blade.spin = clamp(blade.spin - 0.2, 0, 2.5);
+      pushArenaEvent("stop", `${viewer.name} stopped the blade.`);
+      break;
+    case "color": {
+      const color = normalizeColor(command.value);
+      if (color) {
+        viewer.color = color;
+        blade.color = color;
+        pushArenaEvent("color", `${viewer.name} changed color.`);
+      }
+      break;
+    }
+    case "name": {
+      const name = safeText(command.value, 22);
+      if (name) {
+        viewer.name = name;
+        blade.name = name;
+        pushArenaEvent("name", `Viewer updated name to ${name}.`);
+      }
+      break;
+    }
+    default:
+      break;
+  }
+}
+
+function handleGift(viewer, event) {
+  const blade = ensureBlade(viewer);
+  const value = asNumber(event.value || event.amount || event.coins, 0);
+  const repeat = Math.max(1, asNumber(event.repeat || event.count, 1));
+  const coins = value * repeat;
+  viewer.coins += coins;
+  viewer.gifts += repeat;
+  arena.totals.coins += coins;
+  arena.totals.gifts += repeat;
+  arena.totals.revenueUsd = Number((arena.totals.coins * SAFE_COIN_TO_USD).toFixed(2));
+
+  const angle = Math.random() * Math.PI * 2;
+  const boost = clamp(coins / 200, 0.2, 1.2);
+  applyImpulse(blade, Math.cos(angle) * 0.02 * boost, Math.sin(angle) * 0.02 * boost, 0.4 * boost, 0.2 * boost);
+  const giftName = safeText(event.name || event.giftName || "Gift", 24);
+  pushArenaEvent("gift", `${viewer.name} sent ${giftName} x${repeat}.`);
+}
+
+function handleBeybladeEvent(event, source = "tiktok") {
+  const viewerId = normalizeViewerId(event.userId || event.user || event.viewerId, event.userName || event.username);
+  const viewerName = event.userName || event.username || event.user || event.userId || "Viewer";
+  const viewer = getOrCreateViewer(viewerId, viewerName);
+
+  if (event.type === "gift") {
+    handleGift(viewer, event);
+    return;
+  }
+
+  if (event.type === "like") {
+    applyCommand(viewer, { type: "spin" }, source);
+    return;
+  }
+
+  if (event.type === "follow") {
+    applyCommand(viewer, { type: "spawn" }, source);
+    return;
+  }
+
+  if (event.type === "chat") {
+    const command = parseChatCommand(event.message || event.text || "");
+    if (command) applyCommand(viewer, command, source);
+  }
+}
+
+function stepArena() {
+  const blades = [...arena.blades.values()];
+  for (const blade of blades) {
+    blade.x += blade.vx;
+    blade.y += blade.vy;
+    blade.vx *= arena.friction;
+    blade.vy *= arena.friction;
+    blade.spin *= arena.spinDecay;
+    blade.energy = clamp(blade.energy - 0.002, 0, 2);
+
+    const speed = Math.hypot(blade.vx, blade.vy);
+    if (speed > arena.maxSpeed) {
+      blade.vx = (blade.vx / speed) * arena.maxSpeed;
+      blade.vy = (blade.vy / speed) * arena.maxSpeed;
+    }
+
+    const limit = arena.radius - blade.radius;
+    const dist = Math.hypot(blade.x, blade.y);
+    if (dist > limit) {
+      const nx = blade.x / dist;
+      const ny = blade.y / dist;
+      blade.x = nx * limit;
+      blade.y = ny * limit;
+      const dot = blade.vx * nx + blade.vy * ny;
+      blade.vx -= 2 * dot * nx;
+      blade.vy -= 2 * dot * ny;
+      blade.vx *= arena.bounce;
+      blade.vy *= arena.bounce;
+      blade.spin = clamp(blade.spin - 0.05, 0, 2.5);
+    }
+  }
+
+  for (let i = 0; i < blades.length; i += 1) {
+    for (let j = i + 1; j < blades.length; j += 1) {
+      const a = blades[i];
+      const b = blades[j];
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const dist = Math.hypot(dx, dy);
+      const minDist = a.radius + b.radius;
+      if (dist > 0 && dist < minDist) {
+        const nx = dx / dist;
+        const ny = dy / dist;
+        const overlap = minDist - dist;
+        a.x -= nx * overlap * 0.5;
+        a.y -= ny * overlap * 0.5;
+        b.x += nx * overlap * 0.5;
+        b.y += ny * overlap * 0.5;
+
+        const dvx = b.vx - a.vx;
+        const dvy = b.vy - a.vy;
+        const impact = dvx * nx + dvy * ny;
+        if (impact < 0) {
+          const impulse = -impact * 0.8;
+          a.vx -= impulse * nx;
+          a.vy -= impulse * ny;
+          b.vx += impulse * nx;
+          b.vy += impulse * ny;
+        }
+        a.spin = clamp(a.spin - 0.03, 0, 2.5);
+        b.spin = clamp(b.spin - 0.03, 0, 2.5);
+      }
+    }
+  }
+
+  const now = Date.now();
+  for (const blade of arena.blades.values()) {
+    const idleTime = now - blade.lastActionAt;
+    const speed = Math.hypot(blade.vx, blade.vy);
+    if (blade.spin < 0.15 && speed < 0.002 && idleTime > 15000) {
+      arena.blades.delete(blade.id);
+      pushArenaEvent("out", `${blade.name} spun out.`);
+    }
+  }
+
+  if (beybladeIo.sockets.size > 0) {
+    beybladeIo.emit("state", packArenaState());
+  }
+}
+
+function packArenaState() {
+  return {
+    ts: Date.now(),
+    arena: {
+      radius: arena.radius,
+      maxBlades: Math.max(2, SAFE_MAX_BLADES),
+      tickMs: SAFE_TICK_MS
+    },
+    stats: {
+      blades: arena.blades.size,
+      viewers: arena.viewers.size,
+      coins: Math.round(arena.totals.coins),
+      gifts: arena.totals.gifts,
+      revenueUsd: arena.totals.revenueUsd
+    },
+    events: arena.events.slice(-12),
+    blades: [...arena.blades.values()].map(blade => ({
+      id: blade.id,
+      name: blade.name,
+      color: blade.color,
+      x: blade.x,
+      y: blade.y,
+      vx: blade.vx,
+      vy: blade.vy,
+      spin: blade.spin,
+      energy: blade.energy,
+      radius: blade.radius
+    }))
+  };
+}
+
+beybladeIo.on("connection", (socket) => {
+  const viewerId = normalizeViewerId(socket.handshake.auth?.viewerId || socket.id, socket.handshake.auth?.viewerName);
+  const viewerName = safeText(socket.handshake.auth?.viewerName || "Viewer");
+  const viewer = getOrCreateViewer(viewerId, viewerName);
+  socket.data.viewerId = viewerId;
+
+  socket.emit("welcome", { viewerId, viewerName: viewer.name, color: viewer.color });
+  socket.emit("state", packArenaState());
+
+  socket.on("register", ({ viewerName: newName }) => {
+    const updated = safeText(newName, 22);
+    if (updated) {
+      viewer.name = updated;
+      const blade = arena.blades.get(viewer.id);
+      if (blade) blade.name = updated;
+      pushArenaEvent("name", `Viewer updated name to ${updated}.`);
+    }
+  });
+
+  socket.on("control", ({ action, angle, message, dx, dy, magnitude }) => {
+    if (action === "chat" && message) {
+      handleBeybladeEvent({ type: "chat", userId: viewer.id, userName: viewer.name, message }, "web");
+      return;
+    }
+    if (!action) return;
+    applyCommand(viewer, { type: action, angle, dx, dy, magnitude }, "web");
+  });
+
+  socket.on("spawn", () => applyCommand(viewer, { type: "spawn" }, "web"));
+});
+
+app.post("/api/beyblade/events", (req, res) => {
+  if (BEYBLADE_INGEST_SECRET) {
+    const token = req.headers["x-beyblade-secret"] || req.headers.authorization;
+    const clean = String(token || "").replace(/^Bearer\s+/i, "");
+    if (clean !== BEYBLADE_INGEST_SECRET) {
+      return res.status(401).json({ ok: false, error: "unauthorized" });
+    }
+  }
+  const event = req.body || {};
+  if (!event.type) return res.status(400).json({ ok: false, error: "missing type" });
+  handleBeybladeEvent(event, "ingest");
+  return res.json({ ok: true });
+});
+
+app.get("/api/beyblade/state", (_, res) => res.json(packArenaState()));
+
+setInterval(stepArena, Math.max(30, SAFE_TICK_MS));
 
 /* ===== Konstantes ===== */
 const RANKS_36 = ["6","7","8","9","10","J","Q","K","A"];
