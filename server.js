@@ -785,6 +785,7 @@ function finishRound(now, winner) {
   arena.round.cooldownUntil = now + SAFE_ROUND_COOLDOWN_MS;
   arena.round.shrinkAnnounced = false;
   arena.radius = arena.round.baseRadius;
+  arena.blades.clear();
 
   let streak = 0;
   if (winner) {
