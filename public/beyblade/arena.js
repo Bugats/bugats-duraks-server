@@ -114,12 +114,27 @@ function buildLogoCanvas() {
 }
 
 function buildBackgroundPattern() {
-  backgroundCanvas.width = 320;
-  backgroundCanvas.height = 320;
+  backgroundCanvas.width = 560;
+  backgroundCanvas.height = 560;
   const bg = backgroundCanvas.getContext("2d");
   bg.clearRect(0, 0, backgroundCanvas.width, backgroundCanvas.height);
   bg.fillStyle = "#050505";
   bg.fillRect(0, 0, backgroundCanvas.width, backgroundCanvas.height);
+
+  const nebulaColors = ["#2a0f3d", "#0d243f", "#2a1b0a", "#3a0f1f", "#152b1f"];
+  for (let i = 0; i < 6; i += 1) {
+    const x = Math.random() * backgroundCanvas.width;
+    const y = Math.random() * backgroundCanvas.height;
+    const radius = 140 + Math.random() * 200;
+    const color = nebulaColors[i % nebulaColors.length];
+    const grad = bg.createRadialGradient(x, y, 0, x, y, radius);
+    grad.addColorStop(0, withAlpha(color, 0.18));
+    grad.addColorStop(1, "rgba(0,0,0,0)");
+    bg.fillStyle = grad;
+    bg.beginPath();
+    bg.arc(x, y, radius, 0, Math.PI * 2);
+    bg.fill();
+  }
 
   bg.strokeStyle = "rgba(255, 255, 255, 0.04)";
   bg.lineWidth = 1;
@@ -545,16 +560,29 @@ function renderArena(now, dt) {
   ctx.fillStyle = bgGradient;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   if (backgroundPattern) {
+    const shiftX = (now / 120) % backgroundCanvas.width;
+    const shiftY = (now / 180) % backgroundCanvas.height;
     ctx.save();
     ctx.globalAlpha = 0.35;
+    ctx.translate(-shiftX, -shiftY);
     ctx.fillStyle = backgroundPattern;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillRect(shiftX, shiftY, canvas.width + backgroundCanvas.width, canvas.height + backgroundCanvas.height);
     ctx.restore();
   }
 
   ctx.save();
-  ctx.strokeStyle = "rgba(255, 60, 60, 0.9)";
-  ctx.shadowColor = "rgba(255, 30, 30, 0.9)";
+  ctx.strokeStyle = "rgba(255, 60, 60, 0.35)";
+  ctx.shadowColor = "rgba(255, 20, 20, 0.85)";
+  ctx.shadowBlur = 32;
+  ctx.lineWidth = 14;
+  ctx.beginPath();
+  ctx.arc(centerX, centerY, ringScale, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+
+  ctx.save();
+  ctx.strokeStyle = "rgba(255, 80, 80, 0.9)";
+  ctx.shadowColor = "rgba(255, 40, 40, 0.9)";
   ctx.shadowBlur = 18;
   ctx.lineWidth = 5;
   ctx.beginPath();
@@ -567,6 +595,19 @@ function renderArena(now, dt) {
   ctx.beginPath();
   ctx.arc(centerX, centerY, ringScale * 0.98, 0, Math.PI * 2);
   ctx.stroke();
+
+  ctx.save();
+  ctx.strokeStyle = "rgba(255, 120, 120, 0.6)";
+  ctx.lineWidth = 2;
+  for (let a = 0; a < Math.PI * 2; a += Math.PI / 6) {
+    const inner = ringScale * 0.98;
+    const outer = ringScale * 1.03;
+    ctx.beginPath();
+    ctx.moveTo(centerX + Math.cos(a) * inner, centerY + Math.sin(a) * inner);
+    ctx.lineTo(centerX + Math.cos(a) * outer, centerY + Math.sin(a) * outer);
+    ctx.stroke();
+  }
+  ctx.restore();
 
   if (!state) return;
   renderTrails(centerX, centerY);
