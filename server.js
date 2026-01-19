@@ -74,6 +74,10 @@ const BEYBLADE_WALL_SPEED_THRESHOLD = Number(process.env.BEYBLADE_WALL_SPEED_THR
 const BEYBLADE_COLLISION_SPEED_THRESHOLD = Number(process.env.BEYBLADE_COLLISION_SPEED_THRESHOLD || 0.028);
 const BEYBLADE_RING_OUT_BUFFER = Number(process.env.BEYBLADE_RING_OUT_BUFFER || 0.04);
 const BEYBLADE_RING_OUT_SPEED = Number(process.env.BEYBLADE_RING_OUT_SPEED || 0.035);
+const BEYBLADE_IDLE_DAMAGE_DELAY_MS = Number(process.env.BEYBLADE_IDLE_DAMAGE_DELAY_MS || 18000);
+const BEYBLADE_IDLE_DAMAGE_INTERVAL_MS = Number(process.env.BEYBLADE_IDLE_DAMAGE_INTERVAL_MS || 2000);
+const BEYBLADE_IDLE_SPEED_THRESHOLD = Number(process.env.BEYBLADE_IDLE_SPEED_THRESHOLD || 0.004);
+const BEYBLADE_IDLE_DAMAGE = Number(process.env.BEYBLADE_IDLE_DAMAGE || 1);
 const BEYBLADE_STAMINA_MAX = Number(process.env.BEYBLADE_STAMINA_MAX || 100);
 const BEYBLADE_STAMINA_REGEN_PER_SEC = Number(process.env.BEYBLADE_STAMINA_REGEN_PER_SEC || 6);
 const BEYBLADE_STAMINA_BOOST_COST = Number(process.env.BEYBLADE_STAMINA_BOOST_COST || 28);
@@ -112,6 +116,10 @@ const SAFE_WALL_SPEED_THRESHOLD = Number.isFinite(BEYBLADE_WALL_SPEED_THRESHOLD)
 const SAFE_COLLISION_SPEED_THRESHOLD = Number.isFinite(BEYBLADE_COLLISION_SPEED_THRESHOLD) ? BEYBLADE_COLLISION_SPEED_THRESHOLD : 0.028;
 const SAFE_RING_OUT_BUFFER = Number.isFinite(BEYBLADE_RING_OUT_BUFFER) ? BEYBLADE_RING_OUT_BUFFER : 0.04;
 const SAFE_RING_OUT_SPEED = Number.isFinite(BEYBLADE_RING_OUT_SPEED) ? BEYBLADE_RING_OUT_SPEED : 0.035;
+const SAFE_IDLE_DAMAGE_DELAY_MS = Number.isFinite(BEYBLADE_IDLE_DAMAGE_DELAY_MS) ? BEYBLADE_IDLE_DAMAGE_DELAY_MS : 18000;
+const SAFE_IDLE_DAMAGE_INTERVAL_MS = Number.isFinite(BEYBLADE_IDLE_DAMAGE_INTERVAL_MS) ? BEYBLADE_IDLE_DAMAGE_INTERVAL_MS : 2000;
+const SAFE_IDLE_SPEED_THRESHOLD = Number.isFinite(BEYBLADE_IDLE_SPEED_THRESHOLD) ? BEYBLADE_IDLE_SPEED_THRESHOLD : 0.004;
+const SAFE_IDLE_DAMAGE = Number.isFinite(BEYBLADE_IDLE_DAMAGE) ? BEYBLADE_IDLE_DAMAGE : 1;
 const SAFE_STAMINA_MAX = Number.isFinite(BEYBLADE_STAMINA_MAX) ? BEYBLADE_STAMINA_MAX : 100;
 const SAFE_STAMINA_REGEN_PER_SEC = Number.isFinite(BEYBLADE_STAMINA_REGEN_PER_SEC) ? BEYBLADE_STAMINA_REGEN_PER_SEC : 6;
 const SAFE_STAMINA_BOOST_COST = Number.isFinite(BEYBLADE_STAMINA_BOOST_COST) ? BEYBLADE_STAMINA_BOOST_COST : 28;
@@ -301,6 +309,7 @@ function createBlade(viewer) {
     class: classKey,
     momentum: 0,
     lastMomentumAt: now,
+    lastIdleDamageAt: 0,
     lastRegenAt: now,
     shieldUntil: 0,
     slowUntil: 0,
@@ -529,7 +538,11 @@ function markEliminated(blade, now, reason) {
       reason
     });
   }
-  const label = reason === "ringout" ? "ringed out" : "spun out";
+  const label = reason === "ringout"
+    ? "ringed out"
+    : reason === "idle"
+      ? "stalled out"
+      : "spun out";
   pushArenaEvent("out", `${blade.name} ${label}.`, { viewerId: blade.id, reason });
 }
 
@@ -973,6 +986,17 @@ function stepArena() {
     if (speed > speedLimit) {
       blade.vx = (blade.vx / speed) * speedLimit;
       blade.vy = (blade.vy / speed) * speedLimit;
+    }
+
+    if (speed < SAFE_IDLE_SPEED_THRESHOLD && now - blade.lastActionAt >= SAFE_IDLE_DAMAGE_DELAY_MS) {
+      const lastIdle = blade.lastIdleDamageAt || 0;
+      if (now - lastIdle >= SAFE_IDLE_DAMAGE_INTERVAL_MS) {
+        blade.lastIdleDamageAt = now;
+        if (applyDamage(blade, SAFE_IDLE_DAMAGE, now, "idle")) {
+          removed.add(blade.id);
+          continue;
+        }
+      }
     }
 
     const limit = arena.radius - blade.radius;
