@@ -66,7 +66,7 @@ const BEYBLADE_GIFT_TIER_SHOCK = Number(process.env.BEYBLADE_GIFT_TIER_SHOCK || 
 const BEYBLADE_GIFT_TIER_ULT = Number(process.env.BEYBLADE_GIFT_TIER_ULT || 300);
 const BEYBLADE_GIFT_REVIVE = Number(process.env.BEYBLADE_GIFT_REVIVE || 200);
 const BEYBLADE_REVIVE_MAX_PER_ROUND = Number(process.env.BEYBLADE_REVIVE_MAX_PER_ROUND || 2);
-const BEYBLADE_HP_MAX = Number(process.env.BEYBLADE_HP_MAX || 5);
+const BEYBLADE_HP_MAX = Number(process.env.BEYBLADE_HP_MAX || 6);
 const BEYBLADE_DAMAGE_WALL = Number(process.env.BEYBLADE_DAMAGE_WALL || 1);
 const BEYBLADE_DAMAGE_COLLISION = Number(process.env.BEYBLADE_DAMAGE_COLLISION || 1);
 const BEYBLADE_HIT_COOLDOWN_MS = Number(process.env.BEYBLADE_HIT_COOLDOWN_MS || 1200);
@@ -102,7 +102,7 @@ const SAFE_GIFT_TIER_SHOCK = Number.isFinite(BEYBLADE_GIFT_TIER_SHOCK) ? BEYBLAD
 const SAFE_GIFT_TIER_ULT = Number.isFinite(BEYBLADE_GIFT_TIER_ULT) ? BEYBLADE_GIFT_TIER_ULT : 300;
 const SAFE_GIFT_REVIVE = Number.isFinite(BEYBLADE_GIFT_REVIVE) ? BEYBLADE_GIFT_REVIVE : 200;
 const SAFE_REVIVE_MAX_PER_ROUND = Number.isFinite(BEYBLADE_REVIVE_MAX_PER_ROUND) ? BEYBLADE_REVIVE_MAX_PER_ROUND : 2;
-const SAFE_HP_MAX = Number.isFinite(BEYBLADE_HP_MAX) ? BEYBLADE_HP_MAX : 5;
+const SAFE_HP_MAX = Number.isFinite(BEYBLADE_HP_MAX) ? BEYBLADE_HP_MAX : 6;
 const SAFE_DAMAGE_WALL = Number.isFinite(BEYBLADE_DAMAGE_WALL) ? BEYBLADE_DAMAGE_WALL : 1;
 const SAFE_DAMAGE_COLLISION = Number.isFinite(BEYBLADE_DAMAGE_COLLISION) ? BEYBLADE_DAMAGE_COLLISION : 1;
 const SAFE_HIT_COOLDOWN_MS = Number.isFinite(BEYBLADE_HIT_COOLDOWN_MS) ? BEYBLADE_HIT_COOLDOWN_MS : 1200;
@@ -134,6 +134,8 @@ const arena = {
   events: [],
   totals: { coins: 0, gifts: 0, revenueUsd: 0 },
   winStats: new Map(),
+  colorByViewer: new Map(),
+  colorIndex: 0,
   pending: new Set(),
   round: {
     status: "idle",
@@ -173,6 +175,43 @@ function hashString(text) {
   return Math.abs(hash);
 }
 
+function hslToHex(h, s, l) {
+  const sat = s / 100;
+  const light = l / 100;
+  const c = (1 - Math.abs(2 * light - 1)) * sat;
+  const hh = (h % 360) / 60;
+  const x = c * (1 - Math.abs((hh % 2) - 1));
+  let r = 0;
+  let g = 0;
+  let b = 0;
+  if (hh >= 0 && hh < 1) [r, g, b] = [c, x, 0];
+  else if (hh < 2) [r, g, b] = [x, c, 0];
+  else if (hh < 3) [r, g, b] = [0, c, x];
+  else if (hh < 4) [r, g, b] = [0, x, c];
+  else if (hh < 5) [r, g, b] = [x, 0, c];
+  else [r, g, b] = [c, 0, x];
+  const m = light - c / 2;
+  const toHex = (v) => Math.round((v + m) * 255).toString(16).padStart(2, "0");
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+}
+
+function isColorTaken(color, viewerId) {
+  for (const [id, value] of arena.colorByViewer.entries()) {
+    if (id !== viewerId && value === color) return true;
+  }
+  return false;
+}
+
+function assignUniqueColor(viewerId) {
+  const existing = arena.colorByViewer.get(viewerId);
+  if (existing) return existing;
+  const hue = (arena.colorIndex * 137.508) % 360;
+  arena.colorIndex += 1;
+  const color = hslToHex(hue, 85, 55);
+  arena.colorByViewer.set(viewerId, color);
+  return color;
+}
+
 function normalizeViewerId(userId, userName) {
   const raw = String(userId || userName || "");
   const base = raw.toLowerCase().replace(/[^a-z0-9_-]/g, "");
@@ -182,8 +221,7 @@ function normalizeViewerId(userId, userName) {
 }
 
 function colorForViewer(viewerId) {
-  const idx = hashString(viewerId) % BEYBLADE_COLORS.length;
-  return BEYBLADE_COLORS[idx];
+  return assignUniqueColor(viewerId);
 }
 
 function pushArenaEvent(type, message, meta = {}) {
@@ -215,6 +253,7 @@ function getOrCreateViewer(viewerId, viewerName) {
   } else if (name && name !== viewer.name) {
     viewer.name = name;
   }
+  if (!viewer.color) viewer.color = colorForViewer(viewerId);
   viewer.lastSeen = Date.now();
   return viewer;
 }
@@ -247,7 +286,7 @@ function createBlade(viewer) {
     vy: (Math.random() - 0.5) * 0.02,
     spin: 0.8 + Math.random() * 0.4,
     energy: 1,
-    radius: 0.085,
+    radius: 0.075,
     hp: SAFE_HP_MAX,
     hpMax: SAFE_HP_MAX,
     lastHitAt: 0,
@@ -609,8 +648,13 @@ function applyCommand(viewer, command, source) {
     case "color": {
       const color = normalizeColor(command.value);
       if (color) {
+        if (isColorTaken(color, viewer.id)) {
+          pushArenaEvent("color", `${viewer.name} tried a taken color.`, { rejected: true });
+          return;
+        }
         viewer.color = color;
         blade.color = color;
+        arena.colorByViewer.set(viewer.id, color);
         pushArenaEvent("color", `${viewer.name} changed color.`);
       }
       break;

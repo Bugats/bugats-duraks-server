@@ -19,7 +19,7 @@ This repo hosts the Beyblade arena and the TikTok Live bridge.
   - `BEYBLADE_GIFT_REVIVE=200`
   - `BEYBLADE_REVIVE_MAX_PER_ROUND=2`
 - Optional health tuning:
-  - `BEYBLADE_HP_MAX=5`
+  - `BEYBLADE_HP_MAX=6`
   - `BEYBLADE_DAMAGE_WALL=1`
   - `BEYBLADE_DAMAGE_COLLISION=1`
   - `BEYBLADE_HIT_COOLDOWN_MS=1200`

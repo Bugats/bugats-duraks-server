@@ -73,7 +73,7 @@ const TIER_COLORS = {
 function resizeCanvas() {
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
-  baseArenaScale = Math.min(canvas.width, canvas.height) * 0.45;
+  baseArenaScale = Math.min(canvas.width, canvas.height) * 0.5;
   arenaScale = baseArenaScale * zoomFactor;
   buildBackgroundPattern();
 }
@@ -240,7 +240,7 @@ function handleIncomingEvents(events, payload) {
   updateEvents(events || []);
 }
 
-function renderEffects(now) {
+function renderEffects(now, perfMode = false) {
   const centerX = canvas.width / 2;
   const centerY = canvas.height / 2;
 
@@ -276,7 +276,8 @@ function renderEffects(now) {
     ctx.fill();
 
     ctx.strokeStyle = withAlpha("#ffffff", 0.25 * fade);
-    effect.rays.forEach((ray) => {
+    const rays = perfMode ? effect.rays.slice(0, 8) : effect.rays;
+    rays.forEach((ray) => {
       const len = baseRadius * ray.length * (0.6 + ease * 1.2);
       ctx.lineWidth = ray.width;
       ctx.beginPath();
@@ -306,8 +307,9 @@ function updateTrails(blades, ts) {
   }
 }
 
-function renderTrails(centerX, centerY) {
+function renderTrails(centerX, centerY, perfMode) {
   if (!state) return;
+  if (perfMode) return;
   state.blades.forEach((blade) => {
     const list = trailMap.get(blade.id);
     if (!list || list.length < 2) return;
@@ -372,8 +374,9 @@ function detectCollisions(blades, ts) {
   }
 }
 
-function renderSparks(dt) {
+function renderSparks(dt, perfMode) {
   if (!sparkBursts.length) return;
+  if (perfMode && sparkBursts.length > 2) return;
   const centerX = canvas.width / 2;
   const centerY = canvas.height / 2;
 
@@ -475,6 +478,61 @@ function renderMomentumTicks(x, y, radius, momentum) {
   }
 }
 
+function drawRoundRect(ctx, x, y, w, h, r) {
+  const radius = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + radius, y);
+  ctx.lineTo(x + w - radius, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + radius);
+  ctx.lineTo(x + w, y + h - radius);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
+  ctx.lineTo(x + radius, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - radius);
+  ctx.lineTo(x, y + radius);
+  ctx.quadraticCurveTo(x, y, x + radius, y);
+  ctx.closePath();
+}
+
+function renderNameplate(x, y, name, classKey) {
+  const label = name || "Viewer";
+  const badge = classKey ? classKey[0].toUpperCase() : "B";
+  const badgeColor = classKey === "light"
+    ? "#00f2ea"
+    : classKey === "heavy"
+      ? "#ff8c42"
+      : "#6a4c93";
+  ctx.font = "12px Segoe UI, sans-serif";
+  const textWidth = ctx.measureText(label).width;
+  const badgeWidth = 16;
+  const paddingX = 6;
+  const height = 18;
+  const totalWidth = textWidth + badgeWidth + paddingX * 2 + 6;
+  const left = x - totalWidth / 2;
+  const top = y - height + 2;
+
+  ctx.save();
+  ctx.fillStyle = "rgba(0, 0, 0, 0.55)";
+  drawRoundRect(ctx, left, top, totalWidth, height, 6);
+  ctx.fill();
+
+  ctx.fillStyle = badgeColor;
+  drawRoundRect(ctx, left + 4, top + 3, badgeWidth, height - 6, 5);
+  ctx.fill();
+
+  ctx.fillStyle = "#ffffff";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = "10px Segoe UI, sans-serif";
+  ctx.fillText(badge, left + 4 + badgeWidth / 2, top + height / 2);
+
+  ctx.fillStyle = "#ffffff";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  ctx.font = "12px Segoe UI, sans-serif";
+  ctx.fillText(label, left + badgeWidth + paddingX + 6, top + height / 2);
+  ctx.restore();
+}
+
 function updateEvents(events) {
   eventsEl.replaceChildren();
   events.forEach((event) => {
@@ -570,6 +628,7 @@ function renderArena(now, dt) {
   zoomFactor += (targetZoom - zoomFactor) * 0.08;
   arenaScale = baseArenaScale * zoomFactor;
   const ringScale = arenaScale * radius;
+  const perfMode = dt > 0.05 || (state?.blades?.length || 0) > 14;
   const bgGradient = ctx.createRadialGradient(centerX, centerY, arenaScale * 0.2, centerX, centerY, arenaScale * 1.2);
   bgGradient.addColorStop(0, "#0f0f0f");
   bgGradient.addColorStop(0.6, "#050505");
@@ -627,7 +686,7 @@ function renderArena(now, dt) {
   ctx.restore();
 
   if (!state) return;
-  renderTrails(centerX, centerY);
+  renderTrails(centerX, centerY, perfMode);
 
   state.blades.forEach((blade) => {
     const x = centerX + blade.x * arenaScale;
@@ -672,17 +731,14 @@ function renderArena(now, dt) {
 
     ctx.restore();
 
-    ctx.fillStyle = isSelf ? "#00f2ea" : "#ffffff";
-    ctx.font = "12px Segoe UI, sans-serif";
-    ctx.textAlign = "center";
-    ctx.fillText(blade.name || "Viewer", x, y - r - 6);
-    renderHealthDots(x, y - r - 18, blade.hp, blade.hpMax);
+    renderNameplate(x, y - r - 4, blade.name || "Viewer", blade.class);
+    renderHealthDots(x, y - r - 22, blade.hp, blade.hpMax);
     renderStaminaArc(x, y, r * 1.55, blade.stamina, blade.staminaMax);
     renderMomentumTicks(x, y, r * 1.7, blade.momentum);
   });
 
-  renderSparks(dt);
-  renderEffects(now);
+  renderSparks(dt, perfMode);
+  renderEffects(now, perfMode);
   renderRoundBanner(now);
 }
 
