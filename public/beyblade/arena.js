@@ -438,13 +438,28 @@ function renderRoundBanner(now) {
 
 function renderHealthDots(x, y, hp, hpMax) {
   const max = Math.max(1, hpMax || 1);
-  const current = clamp(Math.ceil(hp || 0), 0, max);
+  const current = clamp(hp || 0, 0, max);
+  if (max > 20) {
+    const width = 46;
+    const height = 5;
+    const ratio = max > 0 ? current / max : 0;
+    ctx.save();
+    ctx.fillStyle = "rgba(0, 0, 0, 0.45)";
+    drawRoundRect(ctx, x - width / 2, y - height / 2, width, height, 3);
+    ctx.fill();
+    ctx.fillStyle = "#ff4d4d";
+    drawRoundRect(ctx, x - width / 2, y - height / 2, width * ratio, height, 3);
+    ctx.fill();
+    ctx.restore();
+    return;
+  }
+  const currentInt = clamp(Math.ceil(current), 0, max);
   const spacing = 8;
   const size = 3;
   const startX = x - ((max - 1) * spacing) / 2;
   for (let i = 0; i < max; i += 1) {
     ctx.beginPath();
-    ctx.fillStyle = i < current ? "#ff4d4d" : "rgba(255, 255, 255, 0.2)";
+    ctx.fillStyle = i < currentInt ? "#ff4d4d" : "rgba(255, 255, 255, 0.2)";
     ctx.arc(startX + i * spacing, y, size, 0, Math.PI * 2);
     ctx.fill();
   }
@@ -478,6 +493,50 @@ function renderMomentumTicks(x, y, radius, momentum) {
     ctx.lineTo(x + Math.cos(angle) * outer, y + Math.sin(angle) * outer);
     ctx.stroke();
   }
+}
+
+function findNearestBlade(source, blades) {
+  let nearest = null;
+  let nearestDist = Infinity;
+  blades.forEach((blade) => {
+    if (blade.id === source.id) return;
+    const dx = blade.x - source.x;
+    const dy = blade.y - source.y;
+    const dist = dx * dx + dy * dy;
+    if (dist < nearestDist) {
+      nearestDist = dist;
+      nearest = blade;
+    }
+  });
+  return nearest;
+}
+
+function renderAutoTurret(x, y, targetX, targetY, radius, color) {
+  const angle = Math.atan2(targetY - y, targetX - x);
+  const length = radius * 1.35;
+  ctx.save();
+  ctx.strokeStyle = withAlpha(color || "#ffffff", 0.7);
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(x, y);
+  ctx.lineTo(x + Math.cos(angle) * length, y + Math.sin(angle) * length);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function renderProjectiles(centerX, centerY, projectiles) {
+  if (!projectiles || projectiles.length === 0) return;
+  ctx.save();
+  projectiles.forEach((shot) => {
+    const x = centerX + shot.x * arenaScale;
+    const y = centerY + shot.y * arenaScale;
+    const r = (shot.radius || 0.01) * arenaScale;
+    ctx.fillStyle = withAlpha(shot.color || "#ffffff", 0.9);
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  });
+  ctx.restore();
 }
 
 function drawRoundRect(ctx, x, y, w, h, r) {
@@ -722,6 +781,7 @@ function renderArena(now, dt) {
 
   if (!state) return;
   renderTrails(centerX, centerY, perfMode);
+  renderProjectiles(centerX, centerY, state.projectiles || []);
 
   state.blades.forEach((blade) => {
     const x = centerX + blade.x * arenaScale;
@@ -765,6 +825,13 @@ function renderArena(now, dt) {
     ctx.drawImage(logoCanvas, -logoSize / 2, -logoSize / 2, logoSize, logoSize);
 
     ctx.restore();
+
+    const target = findNearestBlade(blade, state.blades);
+    if (target) {
+      const targetX = centerX + target.x * arenaScale;
+      const targetY = centerY + target.y * arenaScale;
+      renderAutoTurret(x, y, targetX, targetY, r, blade.color);
+    }
 
     renderNameplate(x, y - r - 4, blade.name || "Viewer", blade.class);
     renderHealthDots(x, y - r - 22, blade.hp, blade.hpMax);
@@ -830,6 +897,11 @@ spawnBtn.addEventListener("click", () => {
 
 boostBtn.addEventListener("click", () => {
   socket.emit("control", { action: "boost" });
+});
+
+canvas.addEventListener("pointerdown", (event) => {
+  if (event.button && event.button !== 0) return;
+  socket.emit("control", { action: "shoot" });
 });
 
 function sendChatCommand() {

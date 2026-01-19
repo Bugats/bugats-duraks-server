@@ -66,7 +66,7 @@ const BEYBLADE_GIFT_TIER_SHOCK = Number(process.env.BEYBLADE_GIFT_TIER_SHOCK || 
 const BEYBLADE_GIFT_TIER_ULT = Number(process.env.BEYBLADE_GIFT_TIER_ULT || 300);
 const BEYBLADE_GIFT_REVIVE = Number(process.env.BEYBLADE_GIFT_REVIVE || 200);
 const BEYBLADE_REVIVE_MAX_PER_ROUND = Number(process.env.BEYBLADE_REVIVE_MAX_PER_ROUND || 2);
-const BEYBLADE_HP_MAX = Number(process.env.BEYBLADE_HP_MAX || 6);
+const BEYBLADE_HP_MAX = Number(process.env.BEYBLADE_HP_MAX || 100);
 const BEYBLADE_DAMAGE_WALL = Number(process.env.BEYBLADE_DAMAGE_WALL || 1);
 const BEYBLADE_DAMAGE_COLLISION = Number(process.env.BEYBLADE_DAMAGE_COLLISION || 1);
 const BEYBLADE_HIT_COOLDOWN_MS = Number(process.env.BEYBLADE_HIT_COOLDOWN_MS || 1200);
@@ -78,6 +78,11 @@ const BEYBLADE_IDLE_DAMAGE_DELAY_MS = Number(process.env.BEYBLADE_IDLE_DAMAGE_DE
 const BEYBLADE_IDLE_DAMAGE_INTERVAL_MS = Number(process.env.BEYBLADE_IDLE_DAMAGE_INTERVAL_MS || 2000);
 const BEYBLADE_IDLE_SPEED_THRESHOLD = Number(process.env.BEYBLADE_IDLE_SPEED_THRESHOLD || 0.004);
 const BEYBLADE_IDLE_DAMAGE = Number(process.env.BEYBLADE_IDLE_DAMAGE || 1);
+const BEYBLADE_SHOT_SPEED = Number(process.env.BEYBLADE_SHOT_SPEED || 0.012);
+const BEYBLADE_SHOT_RANGE = Number(process.env.BEYBLADE_SHOT_RANGE || 0.45);
+const BEYBLADE_SHOT_DAMAGE = Number(process.env.BEYBLADE_SHOT_DAMAGE || 0.2);
+const BEYBLADE_SHOT_COOLDOWN_MS = Number(process.env.BEYBLADE_SHOT_COOLDOWN_MS || 300);
+const BEYBLADE_ROSE_HEAL = Number(process.env.BEYBLADE_ROSE_HEAL || 3);
 const BEYBLADE_COMBO_WINDOW_MS = Number(process.env.BEYBLADE_COMBO_WINDOW_MS || 2000);
 const BEYBLADE_COMBO_MOMENTUM_BONUS = Number(process.env.BEYBLADE_COMBO_MOMENTUM_BONUS || 10);
 const BEYBLADE_COMBO_DAMAGE_BONUS = Number(process.env.BEYBLADE_COMBO_DAMAGE_BONUS || 1);
@@ -111,7 +116,7 @@ const SAFE_GIFT_TIER_SHOCK = Number.isFinite(BEYBLADE_GIFT_TIER_SHOCK) ? BEYBLAD
 const SAFE_GIFT_TIER_ULT = Number.isFinite(BEYBLADE_GIFT_TIER_ULT) ? BEYBLADE_GIFT_TIER_ULT : 300;
 const SAFE_GIFT_REVIVE = Number.isFinite(BEYBLADE_GIFT_REVIVE) ? BEYBLADE_GIFT_REVIVE : 200;
 const SAFE_REVIVE_MAX_PER_ROUND = Number.isFinite(BEYBLADE_REVIVE_MAX_PER_ROUND) ? BEYBLADE_REVIVE_MAX_PER_ROUND : 2;
-const SAFE_HP_MAX = Number.isFinite(BEYBLADE_HP_MAX) ? BEYBLADE_HP_MAX : 6;
+const SAFE_HP_MAX = Number.isFinite(BEYBLADE_HP_MAX) ? BEYBLADE_HP_MAX : 100;
 const SAFE_DAMAGE_WALL = Number.isFinite(BEYBLADE_DAMAGE_WALL) ? BEYBLADE_DAMAGE_WALL : 1;
 const SAFE_DAMAGE_COLLISION = Number.isFinite(BEYBLADE_DAMAGE_COLLISION) ? BEYBLADE_DAMAGE_COLLISION : 1;
 const SAFE_HIT_COOLDOWN_MS = Number.isFinite(BEYBLADE_HIT_COOLDOWN_MS) ? BEYBLADE_HIT_COOLDOWN_MS : 1200;
@@ -123,6 +128,11 @@ const SAFE_IDLE_DAMAGE_DELAY_MS = Number.isFinite(BEYBLADE_IDLE_DAMAGE_DELAY_MS)
 const SAFE_IDLE_DAMAGE_INTERVAL_MS = Number.isFinite(BEYBLADE_IDLE_DAMAGE_INTERVAL_MS) ? BEYBLADE_IDLE_DAMAGE_INTERVAL_MS : 2000;
 const SAFE_IDLE_SPEED_THRESHOLD = Number.isFinite(BEYBLADE_IDLE_SPEED_THRESHOLD) ? BEYBLADE_IDLE_SPEED_THRESHOLD : 0.004;
 const SAFE_IDLE_DAMAGE = Number.isFinite(BEYBLADE_IDLE_DAMAGE) ? BEYBLADE_IDLE_DAMAGE : 1;
+const SAFE_SHOT_SPEED = Number.isFinite(BEYBLADE_SHOT_SPEED) ? BEYBLADE_SHOT_SPEED : 0.012;
+const SAFE_SHOT_RANGE = Number.isFinite(BEYBLADE_SHOT_RANGE) ? BEYBLADE_SHOT_RANGE : 0.45;
+const SAFE_SHOT_DAMAGE = Number.isFinite(BEYBLADE_SHOT_DAMAGE) ? BEYBLADE_SHOT_DAMAGE : 0.2;
+const SAFE_SHOT_COOLDOWN_MS = Number.isFinite(BEYBLADE_SHOT_COOLDOWN_MS) ? BEYBLADE_SHOT_COOLDOWN_MS : 300;
+const SAFE_ROSE_HEAL = Number.isFinite(BEYBLADE_ROSE_HEAL) ? BEYBLADE_ROSE_HEAL : 3;
 const SAFE_COMBO_WINDOW_MS = Number.isFinite(BEYBLADE_COMBO_WINDOW_MS) ? BEYBLADE_COMBO_WINDOW_MS : 2000;
 const SAFE_COMBO_MOMENTUM_BONUS = Number.isFinite(BEYBLADE_COMBO_MOMENTUM_BONUS) ? BEYBLADE_COMBO_MOMENTUM_BONUS : 10;
 const SAFE_COMBO_DAMAGE_BONUS = Number.isFinite(BEYBLADE_COMBO_DAMAGE_BONUS) ? BEYBLADE_COMBO_DAMAGE_BONUS : 1;
@@ -150,6 +160,7 @@ const arena = {
   blades: new Map(),
   viewers: new Map(),
   events: [],
+  projectiles: [],
   totals: { coins: 0, gifts: 0, revenueUsd: 0 },
   winStats: new Map(),
   colorByViewer: new Map(),
@@ -180,6 +191,7 @@ const arena = {
 };
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+const SHOT_RADIUS = 0.012;
 const safeText = (value, max = 22) => String(value || "").replace(/[<>]/g, "").trim().slice(0, max);
 const asNumber = (value, fallback) => {
   const n = Number(value);
@@ -315,6 +327,7 @@ function createBlade(viewer) {
     hp: SAFE_HP_MAX,
     hpMax: SAFE_HP_MAX,
     lastHitAt: 0,
+    lastShotAt: 0,
     comboHits: 0,
     comboLastAt: 0,
     stamina: SAFE_STAMINA_MAX,
@@ -496,6 +509,55 @@ function addMomentum(blade, gain) {
   blade.momentum = clamp((blade.momentum || 0) + gain, 0, 100);
 }
 
+function findNearestTarget(blade) {
+  let nearest = null;
+  let nearestDist = Infinity;
+  for (const other of arena.blades.values()) {
+    if (other.id === blade.id) continue;
+    const dx = other.x - blade.x;
+    const dy = other.y - blade.y;
+    const dist = dx * dx + dy * dy;
+    if (dist < nearestDist) {
+      nearestDist = dist;
+      nearest = other;
+    }
+  }
+  return nearest;
+}
+
+function spawnProjectile(blade, now) {
+  const target = findNearestTarget(blade);
+  if (!target) return false;
+  const angle = Math.atan2(target.y - blade.y, target.x - blade.x);
+  const offset = blade.radius + SHOT_RADIUS + 0.01;
+  const startX = blade.x + Math.cos(angle) * offset;
+  const startY = blade.y + Math.sin(angle) * offset;
+  arena.projectiles.push({
+    id: `shot-${now}-${Math.random().toString(36).slice(2, 6)}`,
+    ownerId: blade.id,
+    color: blade.color,
+    x: startX,
+    y: startY,
+    vx: Math.cos(angle) * SAFE_SHOT_SPEED,
+    vy: Math.sin(angle) * SAFE_SHOT_SPEED,
+    startX,
+    startY,
+    createdAt: now,
+    radius: SHOT_RADIUS
+  });
+  blade.lastActionAt = now;
+  return true;
+}
+
+function healBlade(blade, amount) {
+  if (!blade || amount <= 0) return 0;
+  const maxHp = blade.hpMax ?? SAFE_HP_MAX;
+  const before = blade.hp ?? maxHp;
+  const after = clamp(before + amount, 0, maxHp);
+  blade.hp = after;
+  return after - before;
+}
+
 function registerComboHit(attacker, now) {
   if (!attacker) return 0;
   const lastAt = attacker.comboLastAt || 0;
@@ -595,9 +657,15 @@ function markEliminated(blade, now, reason) {
   pushArenaEvent("out", `${blade.name} ${label}.`, { viewerId: blade.id, reason });
 }
 
-function applyDamage(blade, amount, now, reason) {
+function applyDamage(blade, amount, now, reason, options = {}) {
   if (amount <= 0) return false;
-  if (now - (blade.lastHitAt || 0) < SAFE_HIT_COOLDOWN_MS) return false;
+  const {
+    allowFractional = false,
+    cooldownMs = SAFE_HIT_COOLDOWN_MS,
+    cooldownKey = "lastHitAt"
+  } = options;
+  const lastHitAt = blade[cooldownKey] || 0;
+  if (cooldownMs != null && now - lastHitAt < cooldownMs) return false;
   const shielded = blade.shieldUntil && now < blade.shieldUntil;
   let multiplier = 1;
   if (shielded) multiplier *= 0.6;
@@ -608,10 +676,10 @@ function applyDamage(blade, amount, now, reason) {
   if (blade.spin >= 1.8) multiplier *= 0.4;
   else if (blade.spin >= 1.3) multiplier *= 0.7;
   const scaled = amount * multiplier;
-  const finalDamage = scaled < 0.6 ? 0 : Math.round(scaled);
+  const finalDamage = allowFractional ? Math.max(0, Number(scaled.toFixed(2))) : (scaled < 0.6 ? 0 : Math.round(scaled));
   if (finalDamage <= 0) return false;
   blade.hp = Math.max(0, (blade.hp ?? SAFE_HP_MAX) - finalDamage);
-  blade.lastHitAt = now;
+  blade[cooldownKey] = now;
   if (blade.hp <= 0) {
     markEliminated(blade, now, reason);
     return true;
@@ -702,6 +770,9 @@ function applyCommand(viewer, command, source) {
       pushArenaEvent("boost", `${viewer.name} boosted.`);
       break;
     }
+    case "shoot":
+      spawnProjectile(blade, now);
+      break;
     case "spin":
       applyImpulse(blade, 0, 0, 0.5, 0.2, now);
       pushArenaEvent("spin", `${viewer.name} added spin.`);
@@ -820,6 +891,19 @@ function handleGift(viewer, event) {
     return;
   }
 
+  const isRose = giftName.toLowerCase().includes("rose");
+  if (isRose) {
+    const healed = healBlade(blade, SAFE_ROSE_HEAL * repeat);
+    if (healed > 0) {
+      const healedLabel = Number(healed.toFixed(1));
+      pushArenaEvent("heal", `${viewer.name} healed +${healedLabel} with ${giftName}.`, {
+        viewerId: viewer.id,
+        amount: healed,
+        giftName
+      });
+    }
+  }
+
   const angle = Math.random() * Math.PI * 2;
   const boost = clamp(coins / 200, 0.2, 1.4);
   applyImpulse(blade, Math.cos(angle) * 0.02 * boost, Math.sin(angle) * 0.02 * boost, 0.4 * boost, 0.2 * boost);
@@ -876,6 +960,7 @@ function finishRound(now, winner) {
   arena.radius = arena.round.baseRadius;
   arena.blades.clear();
   arena.pending.clear();
+  arena.projectiles = [];
 
   let streak = 0;
   if (winner) {
@@ -930,6 +1015,7 @@ function resetRound() {
   arena.round.revived.clear();
   arena.radius = arena.round.baseRadius;
   arena.pending.clear();
+  arena.projectiles = [];
 }
 
 function updateRoundState(now) {
@@ -1006,7 +1092,7 @@ function handleBeybladeEvent(event, source = "tiktok") {
   }
 
   if (event.type === "like") {
-    applyCommand(viewer, { type: "spin" }, source);
+    applyCommand(viewer, { type: "shoot" }, source);
     return;
   }
 
@@ -1092,6 +1178,36 @@ function stepArena() {
         if (eliminated) removed.add(blade.id);
       }
     }
+  }
+
+  if (arena.projectiles.length > 0) {
+    const nextProjectiles = [];
+    for (const shot of arena.projectiles) {
+      shot.x += shot.vx;
+      shot.y += shot.vy;
+      const traveled = Math.hypot(shot.x - shot.startX, shot.y - shot.startY);
+      if (traveled > SAFE_SHOT_RANGE) continue;
+      let hit = false;
+      for (const blade of blades) {
+        if (blade.id === shot.ownerId) continue;
+        if (removed.has(blade.id)) continue;
+        const dist = Math.hypot(shot.x - blade.x, shot.y - blade.y);
+        const radius = (shot.radius || SHOT_RADIUS) + blade.radius;
+        if (dist <= radius) {
+          if (applyDamage(blade, SAFE_SHOT_DAMAGE, now, "shot", {
+            allowFractional: true,
+            cooldownMs: SAFE_SHOT_COOLDOWN_MS,
+            cooldownKey: "lastShotAt"
+          })) {
+            removed.add(blade.id);
+          }
+          hit = true;
+          break;
+        }
+      }
+      if (!hit) nextProjectiles.push(shot);
+    }
+    arena.projectiles = nextProjectiles;
   }
 
   for (let i = 0; i < blades.length; i += 1) {
@@ -1206,6 +1322,13 @@ function packArenaState() {
       gifts: arena.totals.gifts,
       revenueUsd: arena.totals.revenueUsd
     },
+    projectiles: arena.projectiles.map((shot) => ({
+      id: shot.id,
+      x: shot.x,
+      y: shot.y,
+      radius: shot.radius || SHOT_RADIUS,
+      color: shot.color || "#ffffff"
+    })),
     events: arena.events.slice(-12),
     blades: [...arena.blades.values()].map(blade => ({
       id: blade.id,

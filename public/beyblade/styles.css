@@ -141,6 +141,10 @@ button.ghost {
   border-left: 3px solid #2f9e44;
 }
 
+#events .event.heal {
+  border-left: 3px solid #34c759;
+}
+
 #events .event.tier-boost {
   border-left-color: #00f2ea;
 }
