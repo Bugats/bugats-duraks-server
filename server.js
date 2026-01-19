@@ -10,8 +10,8 @@ import cors from "cors";
 import path from "path";
 import { fileURLToPath } from "url";
 
-// ---- CORS tikai thezone.lv
-const ORIGIN = "https://thezone.lv";
+// ---- CORS tikai thezone.lv + beyblade.thezone.lv
+const ORIGINS = ["https://thezone.lv", "https://beyblade.thezone.lv"];
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -20,13 +20,13 @@ const app = express();
 app.set("trust proxy", 1);
 app.use(express.json({ limit: "1mb" }));
 app.use(cors({
-  origin: ORIGIN,
+  origin: ORIGINS,
   methods: ["GET", "POST", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
   credentials: false,
 }));
 app.options("*", cors({
-  origin: ORIGIN,
+  origin: ORIGINS,
   methods: ["GET", "POST", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
   credentials: false,
@@ -38,7 +38,7 @@ app.get("/health", (_, res) => res.json({ ok: true }));
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   // Socket.IO CORS
-  cors: { origin: ORIGIN, methods: ["GET", "POST"] },
+  cors: { origin: ORIGINS, methods: ["GET", "POST"] },
   serveClient: true,   // lai var ielādēt /socket.io/socket.io.js no šī servera
   path: "/socket.io",
 });
