@@ -66,12 +66,12 @@ const BEYBLADE_GIFT_TIER_SHOCK = Number(process.env.BEYBLADE_GIFT_TIER_SHOCK || 
 const BEYBLADE_GIFT_TIER_ULT = Number(process.env.BEYBLADE_GIFT_TIER_ULT || 300);
 const BEYBLADE_GIFT_REVIVE = Number(process.env.BEYBLADE_GIFT_REVIVE || 200);
 const BEYBLADE_REVIVE_MAX_PER_ROUND = Number(process.env.BEYBLADE_REVIVE_MAX_PER_ROUND || 2);
-const BEYBLADE_HP_MAX = Number(process.env.BEYBLADE_HP_MAX || 3);
+const BEYBLADE_HP_MAX = Number(process.env.BEYBLADE_HP_MAX || 5);
 const BEYBLADE_DAMAGE_WALL = Number(process.env.BEYBLADE_DAMAGE_WALL || 1);
 const BEYBLADE_DAMAGE_COLLISION = Number(process.env.BEYBLADE_DAMAGE_COLLISION || 1);
-const BEYBLADE_HIT_COOLDOWN_MS = Number(process.env.BEYBLADE_HIT_COOLDOWN_MS || 800);
-const BEYBLADE_WALL_SPEED_THRESHOLD = Number(process.env.BEYBLADE_WALL_SPEED_THRESHOLD || 0.015);
-const BEYBLADE_COLLISION_SPEED_THRESHOLD = Number(process.env.BEYBLADE_COLLISION_SPEED_THRESHOLD || 0.02);
+const BEYBLADE_HIT_COOLDOWN_MS = Number(process.env.BEYBLADE_HIT_COOLDOWN_MS || 1200);
+const BEYBLADE_WALL_SPEED_THRESHOLD = Number(process.env.BEYBLADE_WALL_SPEED_THRESHOLD || 0.03);
+const BEYBLADE_COLLISION_SPEED_THRESHOLD = Number(process.env.BEYBLADE_COLLISION_SPEED_THRESHOLD || 0.028);
 const BEYBLADE_COLORS = ["#0f0f0f", "#1a1a1a", "#00f2ea", "#ff0050", "#ffffff", "#fbb1d5", "#ffd166", "#6a4c93", "#2f9e44"];
 const SAFE_MAX_BLADES = Number.isFinite(BEYBLADE_MAX_BLADES) ? BEYBLADE_MAX_BLADES : 24;
 const SAFE_TICK_MS = Number.isFinite(BEYBLADE_TICK_MS) ? BEYBLADE_TICK_MS : 50;
@@ -375,9 +375,16 @@ function markEliminated(blade, now, reason) {
 }
 
 function applyDamage(blade, amount, now, reason) {
+  if (amount <= 0) return false;
   if (now - (blade.lastHitAt || 0) < SAFE_HIT_COOLDOWN_MS) return false;
   const shielded = blade.shieldUntil && now < blade.shieldUntil;
-  const finalDamage = shielded ? amount * 0.5 : amount;
+  let multiplier = 1;
+  if (shielded) multiplier *= 0.6;
+  if (blade.spin >= 1.8) multiplier *= 0.4;
+  else if (blade.spin >= 1.3) multiplier *= 0.7;
+  const scaled = amount * multiplier;
+  const finalDamage = scaled < 0.6 ? 0 : Math.round(scaled);
+  if (finalDamage <= 0) return false;
   blade.hp = Math.max(0, (blade.hp ?? SAFE_HP_MAX) - finalDamage);
   blade.lastHitAt = now;
   if (blade.hp <= 0) {
@@ -764,7 +771,8 @@ function stepArena() {
 
       const speed = Math.hypot(blade.vx, blade.vy);
       if (speed > SAFE_WALL_SPEED_THRESHOLD) {
-        const eliminated = applyDamage(blade, SAFE_DAMAGE_WALL, now, "ringout");
+        const damage = speed > SAFE_WALL_SPEED_THRESHOLD * 1.6 ? SAFE_DAMAGE_WALL + 1 : SAFE_DAMAGE_WALL;
+        const eliminated = applyDamage(blade, damage, now, "ringout");
         if (eliminated) removed.add(blade.id);
       }
     }
@@ -806,8 +814,11 @@ function stepArena() {
 
         const relSpeed = Math.hypot(dvx, dvy);
         if (relSpeed > SAFE_COLLISION_SPEED_THRESHOLD) {
-          if (applyDamage(a, SAFE_DAMAGE_COLLISION, now, "collision")) removed.add(a.id);
-          if (applyDamage(b, SAFE_DAMAGE_COLLISION, now, "collision")) removed.add(b.id);
+          const damage = relSpeed > SAFE_COLLISION_SPEED_THRESHOLD * 1.7
+            ? SAFE_DAMAGE_COLLISION + 1
+            : SAFE_DAMAGE_COLLISION;
+          if (applyDamage(a, damage, now, "collision")) removed.add(a.id);
+          if (applyDamage(b, damage, now, "collision")) removed.add(b.id);
         }
       }
     }
