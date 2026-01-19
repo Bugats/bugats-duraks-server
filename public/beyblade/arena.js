@@ -50,6 +50,8 @@ const socket = io("/beyblade", {
 
 let state = null;
 let arenaScale = 1;
+let roundBanner = null;
+let lastBannerId = null;
 const logoCanvas = document.createElement("canvas");
 
 function resizeCanvas() {
@@ -323,6 +325,34 @@ function renderSparks(dt) {
   ctx.restore();
 }
 
+function renderRoundBanner(now) {
+  if (!roundBanner) return;
+  const endAt = roundBanner.ts + roundBanner.durationMs;
+  if (now >= endAt) {
+    roundBanner = null;
+    return;
+  }
+  const fade = clamp(1 - (now - roundBanner.ts) / roundBanner.durationMs, 0, 1);
+  const centerX = canvas.width / 2;
+  const centerY = canvas.height / 2;
+
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  ctx.textAlign = "center";
+  ctx.fillStyle = `rgba(255, 255, 255, ${0.85 * fade})`;
+  ctx.font = "bold 40px Segoe UI, sans-serif";
+  ctx.shadowColor = "rgba(0, 0, 0, 0.6)";
+  ctx.shadowBlur = 12;
+  ctx.fillText(roundBanner.text, centerX, centerY - 10);
+
+  if (roundBanner.subtext) {
+    ctx.font = "16px Segoe UI, sans-serif";
+    ctx.fillStyle = `rgba(0, 242, 234, ${0.75 * fade})`;
+    ctx.fillText(roundBanner.subtext, centerX, centerY + 18);
+  }
+  ctx.restore();
+}
+
 function updateEvents(events) {
   eventsEl.replaceChildren();
   events.forEach((event) => {
@@ -343,6 +373,7 @@ function renderArena(now, dt) {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   const centerX = canvas.width / 2;
   const centerY = canvas.height / 2;
+  const ringScale = arenaScale * (state?.arena?.radius || 1);
   const bgGradient = ctx.createRadialGradient(centerX, centerY, arenaScale * 0.2, centerX, centerY, arenaScale * 1.2);
   bgGradient.addColorStop(0, "#0f0f0f");
   bgGradient.addColorStop(0.6, "#050505");
@@ -353,7 +384,7 @@ function renderArena(now, dt) {
   ctx.strokeStyle = "rgba(255, 255, 255, 0.1)";
   ctx.lineWidth = 4;
   ctx.beginPath();
-  ctx.arc(centerX, centerY, arenaScale, 0, Math.PI * 2);
+  ctx.arc(centerX, centerY, ringScale, 0, Math.PI * 2);
   ctx.stroke();
 
   if (!state) return;
@@ -402,6 +433,7 @@ function renderArena(now, dt) {
 
   renderSparks(dt);
   renderEffects(now);
+  renderRoundBanner(now);
 }
 
 function tick() {
@@ -433,6 +465,11 @@ socket.on("state", (payload) => {
   const ts = payload?.ts || Date.now();
   updateTrails(payload?.blades || [], ts);
   detectCollisions(payload?.blades || [], ts);
+  const banner = payload?.round?.banner;
+  if (banner && banner.id !== lastBannerId) {
+    lastBannerId = banner.id;
+    roundBanner = { ...banner };
+  }
   handleIncomingEvents(payload.events || [], payload);
 });
 

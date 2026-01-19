@@ -49,11 +49,23 @@ const BEYBLADE_MAX_BLADES = Number(process.env.BEYBLADE_MAX_BLADES || 24);
 const BEYBLADE_TICK_MS = Number(process.env.BEYBLADE_TICK_MS || 50);
 const BEYBLADE_COMMAND_RATE_MS = Number(process.env.BEYBLADE_COMMAND_RATE_MS || 350);
 const BEYBLADE_COIN_TO_USD = Number(process.env.BEYBLADE_COIN_TO_USD || 0.005);
+const BEYBLADE_ROUND_COUNTDOWN_MS = Number(process.env.BEYBLADE_ROUND_COUNTDOWN_MS || 5000);
+const BEYBLADE_ROUND_SHRINK_START_MS = Number(process.env.BEYBLADE_ROUND_SHRINK_START_MS || 30000);
+const BEYBLADE_ROUND_SHRINK_END_MS = Number(process.env.BEYBLADE_ROUND_SHRINK_END_MS || 75000);
+const BEYBLADE_ROUND_COOLDOWN_MS = Number(process.env.BEYBLADE_ROUND_COOLDOWN_MS || 8000);
+const BEYBLADE_MIN_PLAYERS = Number(process.env.BEYBLADE_MIN_PLAYERS || 2);
+const BEYBLADE_MIN_RADIUS = Number(process.env.BEYBLADE_MIN_RADIUS || 0.55);
 const BEYBLADE_COLORS = ["#0f0f0f", "#1a1a1a", "#00f2ea", "#ff0050", "#ffffff", "#fbb1d5", "#ffd166", "#6a4c93", "#2f9e44"];
 const SAFE_MAX_BLADES = Number.isFinite(BEYBLADE_MAX_BLADES) ? BEYBLADE_MAX_BLADES : 24;
 const SAFE_TICK_MS = Number.isFinite(BEYBLADE_TICK_MS) ? BEYBLADE_TICK_MS : 50;
 const SAFE_COMMAND_RATE_MS = Number.isFinite(BEYBLADE_COMMAND_RATE_MS) ? BEYBLADE_COMMAND_RATE_MS : 350;
 const SAFE_COIN_TO_USD = Number.isFinite(BEYBLADE_COIN_TO_USD) ? BEYBLADE_COIN_TO_USD : 0.005;
+const SAFE_ROUND_COUNTDOWN_MS = Number.isFinite(BEYBLADE_ROUND_COUNTDOWN_MS) ? BEYBLADE_ROUND_COUNTDOWN_MS : 5000;
+const SAFE_ROUND_SHRINK_START_MS = Number.isFinite(BEYBLADE_ROUND_SHRINK_START_MS) ? BEYBLADE_ROUND_SHRINK_START_MS : 30000;
+const SAFE_ROUND_SHRINK_END_MS = Number.isFinite(BEYBLADE_ROUND_SHRINK_END_MS) ? BEYBLADE_ROUND_SHRINK_END_MS : 75000;
+const SAFE_ROUND_COOLDOWN_MS = Number.isFinite(BEYBLADE_ROUND_COOLDOWN_MS) ? BEYBLADE_ROUND_COOLDOWN_MS : 8000;
+const SAFE_MIN_PLAYERS = Number.isFinite(BEYBLADE_MIN_PLAYERS) ? BEYBLADE_MIN_PLAYERS : 2;
+const SAFE_MIN_RADIUS = Number.isFinite(BEYBLADE_MIN_RADIUS) ? BEYBLADE_MIN_RADIUS : 0.55;
 
 const beybladeIo = io.of("/beyblade");
 const arena = {
@@ -65,7 +77,25 @@ const arena = {
   blades: new Map(),
   viewers: new Map(),
   events: [],
-  totals: { coins: 0, gifts: 0, revenueUsd: 0 }
+  totals: { coins: 0, gifts: 0, revenueUsd: 0 },
+  pending: new Set(),
+  round: {
+    status: "idle",
+    countdownEndsAt: 0,
+    startAt: 0,
+    shrinkStartAt: 0,
+    shrinkEndAt: 0,
+    baseRadius: 1,
+    minRadius: SAFE_MIN_RADIUS,
+    shrinkAnnounced: false,
+    banner: null,
+    winnerId: null,
+    winnerName: null,
+    winnerStreak: 0,
+    lastWinnerId: null,
+    streaks: new Map(),
+    cooldownUntil: 0
+  }
 };
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
@@ -163,10 +193,29 @@ function createBlade(viewer) {
   return blade;
 }
 
-function ensureBlade(viewer) {
-  const existing = arena.blades.get(viewer.id);
-  if (existing) return existing;
-  return createBlade(viewer);
+function getBlade(viewer) {
+  return arena.blades.get(viewer.id) || null;
+}
+
+function queueViewer(viewer) {
+  if (arena.pending.has(viewer.id)) return;
+  arena.pending.add(viewer.id);
+  pushArenaEvent("queue", `${viewer.name} queued for next battle.`);
+}
+
+function spawnBlade(viewer, { allowDuringRound = false } = {}) {
+  const existing = getBlade(viewer);
+  if (existing) {
+    arena.pending.delete(viewer.id);
+    return existing;
+  }
+  if (!allowDuringRound && arena.round.status === "running") {
+    queueViewer(viewer);
+    return null;
+  }
+  const blade = createBlade(viewer);
+  arena.pending.delete(viewer.id);
+  return blade;
 }
 
 function allowViewerCommand(viewer) {
@@ -251,7 +300,8 @@ function applyImpulse(blade, dx, dy, spinBoost = 0, energyBoost = 0) {
 function applyCommand(viewer, command, source) {
   if (!command) return;
   if (command.type !== "spawn" && !allowViewerCommand(viewer)) return;
-  const blade = command.type === "spawn" ? ensureBlade(viewer) : ensureBlade(viewer);
+  const blade = spawnBlade(viewer);
+  if (!blade) return;
 
   switch (command.type) {
     case "spawn":
@@ -315,7 +365,8 @@ function applyCommand(viewer, command, source) {
 }
 
 function handleGift(viewer, event) {
-  const blade = ensureBlade(viewer);
+  const blade = spawnBlade(viewer, { allowDuringRound: true });
+  if (!blade) return;
   const value = asNumber(event.value || event.amount || event.coins, 0);
   const repeat = Math.max(1, asNumber(event.repeat || event.count, 1));
   const coins = value * repeat;
@@ -335,6 +386,135 @@ function handleGift(viewer, event) {
     repeat,
     giftName
   });
+}
+
+function startRoundCountdown(now) {
+  arena.round.status = "countdown";
+  arena.round.countdownEndsAt = now + SAFE_ROUND_COUNTDOWN_MS;
+  arena.round.banner = null;
+  pushArenaEvent("round", `Battle starts in ${Math.round(SAFE_ROUND_COUNTDOWN_MS / 1000)}s.`);
+}
+
+function startRound(now) {
+  arena.round.status = "running";
+  arena.round.startAt = now;
+  arena.round.countdownEndsAt = 0;
+  arena.round.shrinkStartAt = now + SAFE_ROUND_SHRINK_START_MS;
+  arena.round.shrinkEndAt = now + SAFE_ROUND_SHRINK_END_MS;
+  arena.round.baseRadius = 1;
+  arena.round.minRadius = SAFE_MIN_RADIUS;
+  arena.round.shrinkAnnounced = false;
+  arena.round.banner = null;
+  arena.radius = arena.round.baseRadius;
+  pushArenaEvent("round", "Battle started!");
+}
+
+function finishRound(now, winner) {
+  arena.round.status = "finished";
+  arena.round.cooldownUntil = now + SAFE_ROUND_COOLDOWN_MS;
+  arena.round.shrinkAnnounced = false;
+  arena.radius = arena.round.baseRadius;
+
+  let streak = 0;
+  if (winner) {
+    streak = arena.round.lastWinnerId === winner.id ? (arena.round.streaks.get(winner.id) || 0) + 1 : 1;
+    arena.round.streaks.set(winner.id, streak);
+    arena.round.lastWinnerId = winner.id;
+    arena.round.winnerId = winner.id;
+    arena.round.winnerName = winner.name;
+    arena.round.winnerStreak = streak;
+    pushArenaEvent("round", `${winner.name} wins! Streak x${streak}.`, {
+      winnerId: winner.id,
+      streak
+    });
+    arena.round.banner = {
+      id: `bn-${now}-${winner.id}`,
+      ts: now,
+      durationMs: 7000,
+      text: `${winner.name} wins!`,
+      subtext: `Streak x${streak}`
+    };
+  } else {
+    arena.round.lastWinnerId = null;
+    arena.round.winnerId = null;
+    arena.round.winnerName = null;
+    arena.round.winnerStreak = 0;
+    pushArenaEvent("round", "Round ended. No winner.");
+    arena.round.banner = {
+      id: `bn-${now}-none`,
+      ts: now,
+      durationMs: 6000,
+      text: "Round ended",
+      subtext: "No winner"
+    };
+  }
+}
+
+function resetRound() {
+  arena.round.status = "idle";
+  arena.round.countdownEndsAt = 0;
+  arena.round.startAt = 0;
+  arena.round.shrinkStartAt = 0;
+  arena.round.shrinkEndAt = 0;
+  arena.round.banner = null;
+  arena.round.winnerId = null;
+  arena.round.winnerName = null;
+  arena.round.winnerStreak = 0;
+  arena.round.cooldownUntil = 0;
+  arena.radius = arena.round.baseRadius;
+
+  if (arena.pending.size) {
+    for (const viewerId of arena.pending.values()) {
+      const viewer = arena.viewers.get(viewerId);
+      if (viewer) createBlade(viewer);
+    }
+    arena.pending.clear();
+  }
+}
+
+function updateRoundState(now) {
+  const activeCount = arena.blades.size;
+  if (arena.round.status === "idle") {
+    if (activeCount >= SAFE_MIN_PLAYERS && now >= arena.round.cooldownUntil) {
+      startRoundCountdown(now);
+    }
+    return;
+  }
+
+  if (arena.round.status === "countdown") {
+    if (activeCount < SAFE_MIN_PLAYERS) {
+      arena.round.status = "idle";
+      arena.round.countdownEndsAt = 0;
+      pushArenaEvent("round", "Countdown cancelled. Waiting for players.");
+      return;
+    }
+    if (now >= arena.round.countdownEndsAt) startRound(now);
+    return;
+  }
+
+  if (arena.round.status === "running") {
+    if (now >= arena.round.shrinkStartAt) {
+      if (!arena.round.shrinkAnnounced) {
+        arena.round.shrinkAnnounced = true;
+        pushArenaEvent("round", "Arena shrinking!");
+      }
+      const total = Math.max(1, arena.round.shrinkEndAt - arena.round.shrinkStartAt);
+      const progress = clamp((now - arena.round.shrinkStartAt) / total, 0, 1);
+      arena.radius = arena.round.baseRadius - (arena.round.baseRadius - arena.round.minRadius) * progress;
+    } else {
+      arena.radius = arena.round.baseRadius;
+    }
+
+    if (activeCount <= 1) {
+      const winner = activeCount === 1 ? [...arena.blades.values()][0] : null;
+      finishRound(now, winner);
+    }
+    return;
+  }
+
+  if (arena.round.status === "finished") {
+    if (now >= arena.round.cooldownUntil) resetRound();
+  }
 }
 
 function handleBeybladeEvent(event, source = "tiktok") {
@@ -364,6 +544,8 @@ function handleBeybladeEvent(event, source = "tiktok") {
 }
 
 function stepArena() {
+  const now = Date.now();
+  updateRoundState(now);
   const blades = [...arena.blades.values()];
   for (const blade of blades) {
     blade.x += blade.vx;
@@ -428,7 +610,6 @@ function stepArena() {
     }
   }
 
-  const now = Date.now();
   for (const blade of arena.blades.values()) {
     const idleTime = now - blade.lastActionAt;
     const speed = Math.hypot(blade.vx, blade.vy);
@@ -444,12 +625,27 @@ function stepArena() {
 }
 
 function packArenaState() {
+  const now = Date.now();
+  const countdownMs = arena.round.status === "countdown"
+    ? Math.max(0, arena.round.countdownEndsAt - now)
+    : 0;
   return {
-    ts: Date.now(),
+    ts: now,
     arena: {
       radius: arena.radius,
       maxBlades: Math.max(2, SAFE_MAX_BLADES),
       tickMs: SAFE_TICK_MS
+    },
+    round: {
+      status: arena.round.status,
+      countdownMs,
+      startAt: arena.round.startAt,
+      shrinkStartAt: arena.round.shrinkStartAt,
+      shrinkEndAt: arena.round.shrinkEndAt,
+      winnerId: arena.round.winnerId,
+      winnerName: arena.round.winnerName,
+      winnerStreak: arena.round.winnerStreak,
+      banner: arena.round.banner
     },
     stats: {
       blades: arena.blades.size,
