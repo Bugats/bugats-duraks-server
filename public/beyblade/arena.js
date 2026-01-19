@@ -458,6 +458,23 @@ function renderStaminaArc(x, y, radius, stamina, staminaMax) {
   ctx.stroke();
 }
 
+function renderMomentumTicks(x, y, radius, momentum) {
+  const ratio = clamp((momentum || 0) / 100, 0, 1);
+  const ticks = Math.round(6 * ratio);
+  if (ticks <= 0) return;
+  ctx.strokeStyle = "rgba(255, 80, 80, 0.7)";
+  ctx.lineWidth = 1.5;
+  for (let i = 0; i < ticks; i += 1) {
+    const angle = -Math.PI / 2 + (i / 6) * Math.PI * 2;
+    const inner = radius * 0.92;
+    const outer = radius * 1.06;
+    ctx.beginPath();
+    ctx.moveTo(x + Math.cos(angle) * inner, y + Math.sin(angle) * inner);
+    ctx.lineTo(x + Math.cos(angle) * outer, y + Math.sin(angle) * outer);
+    ctx.stroke();
+  }
+}
+
 function updateEvents(events) {
   eventsEl.replaceChildren();
   events.forEach((event) => {
@@ -661,6 +678,7 @@ function renderArena(now, dt) {
     ctx.fillText(blade.name || "Viewer", x, y - r - 6);
     renderHealthDots(x, y - r - 18, blade.hp, blade.hpMax);
     renderStaminaArc(x, y, r * 1.55, blade.stamina, blade.staminaMax);
+    renderMomentumTicks(x, y, r * 1.7, blade.momentum);
   });
 
   renderSparks(dt);
