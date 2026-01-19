@@ -78,6 +78,9 @@ const BEYBLADE_IDLE_DAMAGE_DELAY_MS = Number(process.env.BEYBLADE_IDLE_DAMAGE_DE
 const BEYBLADE_IDLE_DAMAGE_INTERVAL_MS = Number(process.env.BEYBLADE_IDLE_DAMAGE_INTERVAL_MS || 2000);
 const BEYBLADE_IDLE_SPEED_THRESHOLD = Number(process.env.BEYBLADE_IDLE_SPEED_THRESHOLD || 0.004);
 const BEYBLADE_IDLE_DAMAGE = Number(process.env.BEYBLADE_IDLE_DAMAGE || 1);
+const BEYBLADE_COMBO_WINDOW_MS = Number(process.env.BEYBLADE_COMBO_WINDOW_MS || 2000);
+const BEYBLADE_COMBO_MOMENTUM_BONUS = Number(process.env.BEYBLADE_COMBO_MOMENTUM_BONUS || 10);
+const BEYBLADE_COMBO_DAMAGE_BONUS = Number(process.env.BEYBLADE_COMBO_DAMAGE_BONUS || 1);
 const BEYBLADE_STAMINA_MAX = Number(process.env.BEYBLADE_STAMINA_MAX || 100);
 const BEYBLADE_STAMINA_REGEN_PER_SEC = Number(process.env.BEYBLADE_STAMINA_REGEN_PER_SEC || 6);
 const BEYBLADE_STAMINA_BOOST_COST = Number(process.env.BEYBLADE_STAMINA_BOOST_COST || 28);
@@ -120,6 +123,9 @@ const SAFE_IDLE_DAMAGE_DELAY_MS = Number.isFinite(BEYBLADE_IDLE_DAMAGE_DELAY_MS)
 const SAFE_IDLE_DAMAGE_INTERVAL_MS = Number.isFinite(BEYBLADE_IDLE_DAMAGE_INTERVAL_MS) ? BEYBLADE_IDLE_DAMAGE_INTERVAL_MS : 2000;
 const SAFE_IDLE_SPEED_THRESHOLD = Number.isFinite(BEYBLADE_IDLE_SPEED_THRESHOLD) ? BEYBLADE_IDLE_SPEED_THRESHOLD : 0.004;
 const SAFE_IDLE_DAMAGE = Number.isFinite(BEYBLADE_IDLE_DAMAGE) ? BEYBLADE_IDLE_DAMAGE : 1;
+const SAFE_COMBO_WINDOW_MS = Number.isFinite(BEYBLADE_COMBO_WINDOW_MS) ? BEYBLADE_COMBO_WINDOW_MS : 2000;
+const SAFE_COMBO_MOMENTUM_BONUS = Number.isFinite(BEYBLADE_COMBO_MOMENTUM_BONUS) ? BEYBLADE_COMBO_MOMENTUM_BONUS : 10;
+const SAFE_COMBO_DAMAGE_BONUS = Number.isFinite(BEYBLADE_COMBO_DAMAGE_BONUS) ? BEYBLADE_COMBO_DAMAGE_BONUS : 1;
 const SAFE_STAMINA_MAX = Number.isFinite(BEYBLADE_STAMINA_MAX) ? BEYBLADE_STAMINA_MAX : 100;
 const SAFE_STAMINA_REGEN_PER_SEC = Number.isFinite(BEYBLADE_STAMINA_REGEN_PER_SEC) ? BEYBLADE_STAMINA_REGEN_PER_SEC : 6;
 const SAFE_STAMINA_BOOST_COST = Number.isFinite(BEYBLADE_STAMINA_BOOST_COST) ? BEYBLADE_STAMINA_BOOST_COST : 28;
@@ -309,6 +315,8 @@ function createBlade(viewer) {
     hp: SAFE_HP_MAX,
     hpMax: SAFE_HP_MAX,
     lastHitAt: 0,
+    comboHits: 0,
+    comboLastAt: 0,
     stamina: SAFE_STAMINA_MAX,
     staminaMax: SAFE_STAMINA_MAX,
     staminaRegen: 1,
@@ -479,6 +487,33 @@ function getEngagement(blade) {
 function addMomentum(blade, gain) {
   if (!gain || gain <= 0) return;
   blade.momentum = clamp((blade.momentum || 0) + gain, 0, 100);
+}
+
+function registerComboHit(attacker, now) {
+  if (!attacker) return 0;
+  const lastAt = attacker.comboLastAt || 0;
+  const withinWindow = now - lastAt <= SAFE_COMBO_WINDOW_MS;
+  const prevHits = attacker.comboHits || 0;
+  const nextHits = withinWindow ? prevHits + 1 : 1;
+  attacker.comboLastAt = now;
+  attacker.comboHits = Math.min(nextHits, 3);
+
+  if (nextHits === 2) {
+    addMomentum(attacker, SAFE_COMBO_MOMENTUM_BONUS);
+    pushArenaEvent("combo", `${attacker.name} combo x2!`, {
+      viewerId: attacker.id,
+      hits: 2,
+      bonus: "momentum"
+    });
+  } else if (nextHits === 3) {
+    pushArenaEvent("combo", `${attacker.name} combo x3! Damage boost!`, {
+      viewerId: attacker.id,
+      hits: 3,
+      bonus: "damage"
+    });
+    return SAFE_COMBO_DAMAGE_BONUS;
+  }
+  return 0;
 }
 
 function getBladeSpeedMultiplier(blade, now) {
@@ -1090,18 +1125,23 @@ function stepArena() {
 
         const relSpeed = Math.hypot(dvx, dvy);
         if (relSpeed > SAFE_COLLISION_SPEED_THRESHOLD) {
-          if (speedA >= speedB) {
+          const aggressor = speedA >= speedB ? a : b;
+          const defender = aggressor === a ? b : a;
+          if (aggressor === a) {
             addMomentum(a, SAFE_MOMENTUM_COLLISION_FAST);
             addMomentum(b, SAFE_MOMENTUM_COLLISION_SLOW);
           } else {
             addMomentum(b, SAFE_MOMENTUM_COLLISION_FAST);
             addMomentum(a, SAFE_MOMENTUM_COLLISION_SLOW);
           }
+          const comboBonus = registerComboHit(aggressor, now);
           const damage = relSpeed > SAFE_COLLISION_SPEED_THRESHOLD * 1.7
             ? SAFE_DAMAGE_COLLISION + 1
             : SAFE_DAMAGE_COLLISION;
-          if (applyDamage(a, damage, now, "collision")) removed.add(a.id);
-          if (applyDamage(b, damage, now, "collision")) removed.add(b.id);
+          const damageA = defender === a ? damage + comboBonus : damage;
+          const damageB = defender === b ? damage + comboBonus : damage;
+          if (applyDamage(a, damageA, now, "collision")) removed.add(a.id);
+          if (applyDamage(b, damageB, now, "collision")) removed.add(b.id);
         }
       }
     }

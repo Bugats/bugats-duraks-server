@@ -137,6 +137,10 @@ button.ghost {
   border-left: 3px solid #9ad6ff;
 }
 
+#events .event.combo {
+  border-left: 3px solid #2f9e44;
+}
+
 #events .event.tier-boost {
   border-left-color: #00f2ea;
 }

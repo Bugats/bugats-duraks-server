@@ -35,6 +35,10 @@ This repo hosts the Beyblade arena and the TikTok Live bridge.
   - `BEYBLADE_IDLE_DAMAGE_INTERVAL_MS=2000`
   - `BEYBLADE_IDLE_SPEED_THRESHOLD=0.004`
   - `BEYBLADE_IDLE_DAMAGE=1`
+- Optional combo tuning:
+  - `BEYBLADE_COMBO_WINDOW_MS=2000`
+  - `BEYBLADE_COMBO_MOMENTUM_BONUS=10`
+  - `BEYBLADE_COMBO_DAMAGE_BONUS=1`
 - Optional stamina + shield tuning:
   - `BEYBLADE_STAMINA_MAX=100`
   - `BEYBLADE_STAMINA_REGEN_PER_SEC=6`
