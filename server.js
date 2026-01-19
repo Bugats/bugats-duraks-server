@@ -96,12 +96,13 @@ function colorForViewer(viewerId) {
   return BEYBLADE_COLORS[idx];
 }
 
-function pushArenaEvent(type, message) {
+function pushArenaEvent(type, message, meta = {}) {
   arena.events.push({
     id: `ev-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     ts: Date.now(),
     type,
-    message
+    message,
+    meta: (meta && typeof meta === "object") ? meta : {}
   });
   if (arena.events.length > 20) arena.events.shift();
 }
@@ -328,7 +329,12 @@ function handleGift(viewer, event) {
   const boost = clamp(coins / 200, 0.2, 1.2);
   applyImpulse(blade, Math.cos(angle) * 0.02 * boost, Math.sin(angle) * 0.02 * boost, 0.4 * boost, 0.2 * boost);
   const giftName = safeText(event.name || event.giftName || "Gift", 24);
-  pushArenaEvent("gift", `${viewer.name} sent ${giftName} x${repeat}.`);
+  pushArenaEvent("gift", `${viewer.name} sent ${giftName} x${repeat}.`, {
+    viewerId: viewer.id,
+    coins,
+    repeat,
+    giftName
+  });
 }
 
 function handleBeybladeEvent(event, source = "tiktok") {
