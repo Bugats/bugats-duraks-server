@@ -13,7 +13,11 @@ const sendBtn = document.getElementById("send");
 
 const storageKey = "bbViewer";
 const effects = [];
+const trailMap = new Map();
+const sparkBursts = [];
+const lastCollisionAt = new Map();
 let seenEventIds = new Set();
+let lastFrameTs = Date.now();
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 
@@ -156,8 +160,7 @@ function handleIncomingEvents(events, payload) {
   updateEvents(events || []);
 }
 
-function renderEffects() {
-  const now = Date.now();
+function renderEffects(now) {
   const centerX = canvas.width / 2;
   const centerY = canvas.height / 2;
 
@@ -206,6 +209,120 @@ function renderEffects() {
   }
 }
 
+function updateTrails(blades, ts) {
+  const cutoff = ts - 700;
+  const activeIds = new Set();
+  blades.forEach((blade) => {
+    activeIds.add(blade.id);
+    const list = trailMap.get(blade.id) || [];
+    list.push({ x: blade.x, y: blade.y, ts });
+    while (list.length > 20 || (list[0] && list[0].ts < cutoff)) {
+      list.shift();
+    }
+    trailMap.set(blade.id, list);
+  });
+  for (const id of trailMap.keys()) {
+    if (!activeIds.has(id)) trailMap.delete(id);
+  }
+}
+
+function renderTrails(centerX, centerY) {
+  if (!state) return;
+  state.blades.forEach((blade) => {
+    const list = trailMap.get(blade.id);
+    if (!list || list.length < 2) return;
+    const baseWidth = Math.max(1.5, blade.radius * arenaScale * 0.6);
+    for (let i = 1; i < list.length; i += 1) {
+      const prev = list[i - 1];
+      const cur = list[i];
+      const alpha = (i / list.length) * 0.35;
+      ctx.strokeStyle = withAlpha(blade.color || "#ffffff", alpha);
+      ctx.lineWidth = baseWidth * (i / list.length);
+      ctx.beginPath();
+      ctx.moveTo(centerX + prev.x * arenaScale, centerY + prev.y * arenaScale);
+      ctx.lineTo(centerX + cur.x * arenaScale, centerY + cur.y * arenaScale);
+      ctx.stroke();
+    }
+  });
+}
+
+function spawnCollisionSpark(x, y, color, intensity) {
+  const strength = clamp(intensity, 0.6, 2.5);
+  const count = Math.round(8 + strength * 6);
+  const particles = [];
+  for (let i = 0; i < count; i += 1) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 0.4 + Math.random() * (0.4 + strength * 0.4);
+    const life = 0.25 + Math.random() * 0.25 + strength * 0.05;
+    particles.push({
+      x,
+      y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      life,
+      ttl: life,
+      size: 1 + Math.random() * 1.5 + strength
+    });
+  }
+  sparkBursts.push({ color, particles });
+}
+
+function detectCollisions(blades, ts) {
+  for (let i = 0; i < blades.length; i += 1) {
+    for (let j = i + 1; j < blades.length; j += 1) {
+      const a = blades[i];
+      const b = blades[j];
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const dist = Math.hypot(dx, dy);
+      const minDist = (a.radius + b.radius) * 1.05;
+      if (dist > 0 && dist < minDist) {
+        const relVx = (b.vx || 0) - (a.vx || 0);
+        const relVy = (b.vy || 0) - (a.vy || 0);
+        const relSpeed = Math.hypot(relVx, relVy);
+        if (relSpeed < 0.01) continue;
+        const key = a.id < b.id ? `${a.id}|${b.id}` : `${b.id}|${a.id}`;
+        const last = lastCollisionAt.get(key) || 0;
+        if (ts - last < 220) continue;
+        lastCollisionAt.set(key, ts);
+        const sparkColor = b.color || a.color || "#ffffff";
+        spawnCollisionSpark((a.x + b.x) * 0.5, (a.y + b.y) * 0.5, sparkColor, relSpeed * 35);
+      }
+    }
+  }
+}
+
+function renderSparks(dt) {
+  if (!sparkBursts.length) return;
+  const centerX = canvas.width / 2;
+  const centerY = canvas.height / 2;
+
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  for (let b = sparkBursts.length - 1; b >= 0; b -= 1) {
+    const burst = sparkBursts[b];
+    for (let p = burst.particles.length - 1; p >= 0; p -= 1) {
+      const particle = burst.particles[p];
+      particle.life -= dt;
+      if (particle.life <= 0) {
+        burst.particles.splice(p, 1);
+        continue;
+      }
+      particle.x += particle.vx * dt;
+      particle.y += particle.vy * dt;
+      const alpha = particle.life / particle.ttl;
+      ctx.fillStyle = withAlpha(burst.color || "#ffd166", alpha);
+      const px = centerX + particle.x * arenaScale;
+      const py = centerY + particle.y * arenaScale;
+      ctx.beginPath();
+      ctx.arc(px, py, particle.size, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    if (burst.particles.length === 0) sparkBursts.splice(b, 1);
+  }
+  ctx.restore();
+}
+
 function updateEvents(events) {
   eventsEl.replaceChildren();
   events.forEach((event) => {
@@ -222,13 +339,16 @@ function updateStats(stats) {
   statsEl.textContent = `Blades: ${stats.blades} | Viewers: ${stats.viewers} | Coins: ${stats.coins} | Est USD: ${revenue}`;
 }
 
-function renderArena() {
+function renderArena(now, dt) {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = "#050505";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-
   const centerX = canvas.width / 2;
   const centerY = canvas.height / 2;
+  const bgGradient = ctx.createRadialGradient(centerX, centerY, arenaScale * 0.2, centerX, centerY, arenaScale * 1.2);
+  bgGradient.addColorStop(0, "#0f0f0f");
+  bgGradient.addColorStop(0.6, "#050505");
+  bgGradient.addColorStop(1, "#020202");
+  ctx.fillStyle = bgGradient;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
 
   ctx.strokeStyle = "rgba(255, 255, 255, 0.1)";
   ctx.lineWidth = 4;
@@ -237,6 +357,8 @@ function renderArena() {
   ctx.stroke();
 
   if (!state) return;
+  renderTrails(centerX, centerY);
+
   state.blades.forEach((blade) => {
     const x = centerX + blade.x * arenaScale;
     const y = centerY + blade.y * arenaScale;
@@ -259,6 +381,14 @@ function renderArena() {
     ctx.arc(0, 0, r * 0.55, 0, Math.PI * 2);
     ctx.fill();
 
+    const energy = clamp(blade.energy || 0, 0, 2);
+    const pulse = 1 + 0.08 * Math.sin((now / 180) + blade.spin * 2);
+    ctx.strokeStyle = withAlpha(blade.color || "#ffffff", 0.25 + energy * 0.2);
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(0, 0, r * 1.1 * pulse, 0, Math.PI * 2);
+    ctx.stroke();
+
     const logoSize = r * 1.1;
     ctx.drawImage(logoCanvas, -logoSize / 2, -logoSize / 2, logoSize, logoSize);
 
@@ -270,11 +400,15 @@ function renderArena() {
     ctx.fillText(blade.name || "Viewer", x, y - r - 6);
   });
 
-  renderEffects();
+  renderSparks(dt);
+  renderEffects(now);
 }
 
 function tick() {
-  renderArena();
+  const now = Date.now();
+  const dt = Math.min(0.05, (now - lastFrameTs) / 1000);
+  lastFrameTs = now;
+  renderArena(now, dt);
   requestAnimationFrame(tick);
 }
 
@@ -296,6 +430,9 @@ socket.on("welcome", (payload) => {
 socket.on("state", (payload) => {
   state = payload;
   updateStats(payload.stats);
+  const ts = payload?.ts || Date.now();
+  updateTrails(payload?.blades || [], ts);
+  detectCollisions(payload?.blades || [], ts);
   handleIncomingEvents(payload.events || [], payload);
 });
 
