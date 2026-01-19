@@ -358,25 +358,39 @@ function parseChatCommand(text) {
       return { type: "spawn" };
     case "boost":
     case "dash":
-      return { type: "boost", magnitude: asNumber(rest[0], 1) };
+      return {
+        type: "boost",
+        magnitude: asNumber(rest[0], 1),
+        angle: rest[1] != null ? asNumber(rest[1], null) : null
+      };
     case "spin":
       return { type: "spin" };
     case "left":
     case "l":
+      if (rest[0] != null) return { type: "turn", angle: asNumber(rest[0], null) };
       return { type: "nudge", dx: -1, dy: 0 };
     case "right":
     case "r":
+      if (rest[0] != null) return { type: "turn", angle: asNumber(rest[0], null) };
       return { type: "nudge", dx: 1, dy: 0 };
     case "up":
     case "u":
+      if (rest[0] != null) return { type: "turn", angle: asNumber(rest[0], null) };
       return { type: "nudge", dx: 0, dy: -1 };
     case "down":
     case "d":
+      if (rest[0] != null) return { type: "turn", angle: asNumber(rest[0], null) };
       return { type: "nudge", dx: 0, dy: 1 };
     case "stop":
       return { type: "stop" };
     case "shield":
       return { type: "shield" };
+    case "turn":
+    case "dir": {
+      const deg = asNumber(rest[0], null);
+      if (deg == null) return null;
+      return { type: "turn", angle: deg };
+    }
     case "class": {
       const value = (rest[0] || "").toLowerCase();
       return { type: "class", value };
@@ -616,8 +630,11 @@ function applyCommand(viewer, command, source) {
       if (!staminaUse) return;
       const scale = staminaUse.scale;
       addMomentum(blade, SAFE_MOMENTUM_BOOST_GAIN * scale);
-      const hasDirection = Math.abs(blade.vx) > 0.001 || Math.abs(blade.vy) > 0.001;
-      const angle = hasDirection ? Math.atan2(blade.vy, blade.vx) : Math.random() * Math.PI * 2;
+      const angle = command.angle != null && Number.isFinite(command.angle)
+        ? (command.angle * Math.PI) / 180
+        : (Math.abs(blade.vx) > 0.001 || Math.abs(blade.vy) > 0.001)
+          ? Math.atan2(blade.vy, blade.vx)
+          : Math.random() * Math.PI * 2;
       const force = 0.018 * magnitude * scale;
       applyImpulse(blade, Math.cos(angle) * force, Math.sin(angle) * force, 0.3 * magnitude * scale, 0.15 * magnitude * scale, now);
       pushArenaEvent("boost", `${viewer.name} boosted.`);
@@ -628,8 +645,15 @@ function applyCommand(viewer, command, source) {
       pushArenaEvent("spin", `${viewer.name} added spin.`);
       break;
     case "nudge": {
-      const nudge = 0.012;
+      const nudge = 0.016;
       applyImpulse(blade, (command.dx || 0) * nudge, (command.dy || 0) * nudge, 0.05, 0.02, now);
+      break;
+    }
+    case "turn": {
+      if (command.angle == null || !Number.isFinite(command.angle)) return;
+      const nudge = 0.016;
+      const angle = (command.angle * Math.PI) / 180;
+      applyImpulse(blade, Math.cos(angle) * nudge, Math.sin(angle) * nudge, 0.05, 0.02, now);
       break;
     }
     case "aim": {
