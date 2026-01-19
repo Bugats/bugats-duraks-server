@@ -384,8 +384,10 @@ function parseChatCommand(text) {
     case "dash":
       return {
         type: "boost",
-        magnitude: asNumber(rest[0], 1),
-        angle: rest[1] != null ? asNumber(rest[1], null) : null
+        magnitude: rest.length > 1 ? asNumber(rest[0], 1) : 1,
+        angle: rest[0] != null
+          ? asNumber(rest.length > 1 ? rest[1] : rest[0], null)
+          : null
       };
     case "spin":
       return { type: "spin" };
@@ -411,6 +413,11 @@ function parseChatCommand(text) {
       return { type: "shield" };
     case "turn":
     case "dir": {
+      const deg = asNumber(rest[0], null);
+      if (deg == null) return null;
+      return { type: "turn", angle: deg };
+    }
+    case "go": {
       const deg = asNumber(rest[0], null);
       if (deg == null) return null;
       return { type: "turn", angle: deg };
