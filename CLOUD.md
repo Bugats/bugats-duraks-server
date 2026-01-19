@@ -11,6 +11,8 @@ This repo hosts the Beyblade arena and the TikTok Live bridge.
 - `BEYBLADE_EVENT_URL=https://beyblade.thezone.lv/api/beyblade/events`
 - Optional arena tuning:
   - `BEYBLADE_MAX_BLADES=7`
+  - `BEYBLADE_ROUND_SHRINK_START_MS=120000`
+  - `BEYBLADE_ROUND_SHRINK_END_MS=240000`
 - Optional: `BEYBLADE_INGEST_SECRET=<secret>`
 - Optional: `TIKTOK_SESSION_ID=<tiktok session id>`
 - Optional gift tuning:
