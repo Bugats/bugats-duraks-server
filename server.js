@@ -50,7 +50,7 @@ const io = new Server(httpServer, {
 
 /* ===== Beyblade Arena (TikTok chat-controlled) ===== */
 const BEYBLADE_INGEST_SECRET = process.env.BEYBLADE_INGEST_SECRET || "";
-const BEYBLADE_MAX_BLADES = Number(process.env.BEYBLADE_MAX_BLADES || 24);
+const BEYBLADE_MAX_BLADES = Number(process.env.BEYBLADE_MAX_BLADES || 7);
 const BEYBLADE_TICK_MS = Number(process.env.BEYBLADE_TICK_MS || 50);
 const BEYBLADE_COMMAND_RATE_MS = Number(process.env.BEYBLADE_COMMAND_RATE_MS || 350);
 const BEYBLADE_COIN_TO_USD = Number(process.env.BEYBLADE_COIN_TO_USD || 0.005);
@@ -88,7 +88,7 @@ const BEYBLADE_MOMENTUM_SHIELD_GAIN = Number(process.env.BEYBLADE_MOMENTUM_SHIEL
 const BEYBLADE_MOMENTUM_COLLISION_FAST = Number(process.env.BEYBLADE_MOMENTUM_COLLISION_FAST || 10);
 const BEYBLADE_MOMENTUM_COLLISION_SLOW = Number(process.env.BEYBLADE_MOMENTUM_COLLISION_SLOW || 6);
 const BEYBLADE_COLORS = ["#0f0f0f", "#1a1a1a", "#00f2ea", "#ff0050", "#ffffff", "#fbb1d5", "#ffd166", "#6a4c93", "#2f9e44"];
-const SAFE_MAX_BLADES = Number.isFinite(BEYBLADE_MAX_BLADES) ? BEYBLADE_MAX_BLADES : 24;
+const SAFE_MAX_BLADES = Number.isFinite(BEYBLADE_MAX_BLADES) ? BEYBLADE_MAX_BLADES : 7;
 const SAFE_TICK_MS = Number.isFinite(BEYBLADE_TICK_MS) ? BEYBLADE_TICK_MS : 50;
 const SAFE_COMMAND_RATE_MS = Number.isFinite(BEYBLADE_COMMAND_RATE_MS) ? BEYBLADE_COMMAND_RATE_MS : 350;
 const SAFE_COIN_TO_USD = Number.isFinite(BEYBLADE_COIN_TO_USD) ? BEYBLADE_COIN_TO_USD : 0.005;
