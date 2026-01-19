@@ -91,6 +91,17 @@ button:hover {
   border-color: rgba(0, 242, 234, 0.8);
 }
 
+button.ghost {
+  font-size: 11px;
+  padding: 4px 8px;
+  background: rgba(0, 0, 0, 0.35);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+#events.hidden {
+  display: none;
+}
+
 #events {
   margin-top: 10px;
   max-height: 160px;

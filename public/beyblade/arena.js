@@ -8,6 +8,7 @@ const roundTimersEl = document.getElementById("round-timers");
 const roundMetaEl = document.getElementById("round-meta");
 const queueEl = document.getElementById("queue");
 const leaderboardEl = document.getElementById("leaderboard");
+const toggleLogBtn = document.getElementById("toggle-log");
 const eventsEl = document.getElementById("events");
 const nameInput = document.getElementById("viewer-name");
 const saveNameBtn = document.getElementById("save-name");
@@ -17,6 +18,7 @@ const commandInput = document.getElementById("command");
 const sendBtn = document.getElementById("send");
 
 const storageKey = "bbViewer";
+const logHiddenKey = "bbLogHidden";
 const effects = [];
 const trailMap = new Map();
 const sparkBursts = [];
@@ -544,6 +546,13 @@ function updateEvents(events) {
   });
 }
 
+function setLogHidden(hidden) {
+  eventsEl.classList.toggle("hidden", hidden);
+  if (toggleLogBtn) {
+    toggleLogBtn.textContent = hidden ? "Show log" : "Hide log";
+  }
+}
+
 function updateStats(stats) {
   if (!stats) return;
   const revenue = Number.isFinite(stats.revenueUsd) ? stats.revenueUsd.toFixed(2) : "0.00";
@@ -808,6 +817,16 @@ sendBtn.addEventListener("click", sendChatCommand);
 commandInput.addEventListener("keydown", (event) => {
   if (event.key === "Enter") sendChatCommand();
 });
+
+if (toggleLogBtn) {
+  const initialHidden = localStorage.getItem(logHiddenKey) === "1";
+  setLogHidden(initialHidden);
+  toggleLogBtn.addEventListener("click", () => {
+    const hidden = !eventsEl.classList.contains("hidden");
+    setLogHidden(hidden);
+    localStorage.setItem(logHiddenKey, hidden ? "1" : "0");
+  });
+}
 
 window.addEventListener("keydown", (event) => {
   if (event.target && event.target.tagName === "INPUT") return;
