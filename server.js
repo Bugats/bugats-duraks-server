@@ -34,6 +34,11 @@ app.options("*", cors({
 app.use("/beyblade", express.static(path.join(__dirname, "public/beyblade")));
 
 app.get("/health", (_, res) => res.json({ ok: true }));
+app.get("/", (req, res) => {
+  const host = String(req.headers.host || "").toLowerCase();
+  if (host.includes("beyblade.")) return res.redirect("/beyblade");
+  return res.json({ ok: true });
+});
 
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
