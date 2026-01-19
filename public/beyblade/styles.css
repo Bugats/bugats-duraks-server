@@ -118,6 +118,14 @@ button:hover {
   border-left: 3px solid #ffd166;
 }
 
+#events .event.shield {
+  border-left: 3px solid #4d79ff;
+}
+
+#events .event.class {
+  border-left: 3px solid #9ad6ff;
+}
+
 #events .event.tier-boost {
   border-left-color: #00f2ea;
 }

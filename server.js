@@ -72,6 +72,13 @@ const BEYBLADE_DAMAGE_COLLISION = Number(process.env.BEYBLADE_DAMAGE_COLLISION |
 const BEYBLADE_HIT_COOLDOWN_MS = Number(process.env.BEYBLADE_HIT_COOLDOWN_MS || 1200);
 const BEYBLADE_WALL_SPEED_THRESHOLD = Number(process.env.BEYBLADE_WALL_SPEED_THRESHOLD || 0.03);
 const BEYBLADE_COLLISION_SPEED_THRESHOLD = Number(process.env.BEYBLADE_COLLISION_SPEED_THRESHOLD || 0.028);
+const BEYBLADE_STAMINA_MAX = Number(process.env.BEYBLADE_STAMINA_MAX || 100);
+const BEYBLADE_STAMINA_REGEN_PER_SEC = Number(process.env.BEYBLADE_STAMINA_REGEN_PER_SEC || 6);
+const BEYBLADE_STAMINA_BOOST_COST = Number(process.env.BEYBLADE_STAMINA_BOOST_COST || 28);
+const BEYBLADE_STAMINA_DASH_COST = Number(process.env.BEYBLADE_STAMINA_DASH_COST || 22);
+const BEYBLADE_STAMINA_SHIELD_COST = Number(process.env.BEYBLADE_STAMINA_SHIELD_COST || 30);
+const BEYBLADE_SHIELD_DURATION_MS = Number(process.env.BEYBLADE_SHIELD_DURATION_MS || 2500);
+const BEYBLADE_SHIELD_SLOW_MULT = Number(process.env.BEYBLADE_SHIELD_SLOW_MULT || 0.7);
 const BEYBLADE_COLORS = ["#0f0f0f", "#1a1a1a", "#00f2ea", "#ff0050", "#ffffff", "#fbb1d5", "#ffd166", "#6a4c93", "#2f9e44"];
 const SAFE_MAX_BLADES = Number.isFinite(BEYBLADE_MAX_BLADES) ? BEYBLADE_MAX_BLADES : 24;
 const SAFE_TICK_MS = Number.isFinite(BEYBLADE_TICK_MS) ? BEYBLADE_TICK_MS : 50;
@@ -89,12 +96,19 @@ const SAFE_GIFT_TIER_SHOCK = Number.isFinite(BEYBLADE_GIFT_TIER_SHOCK) ? BEYBLAD
 const SAFE_GIFT_TIER_ULT = Number.isFinite(BEYBLADE_GIFT_TIER_ULT) ? BEYBLADE_GIFT_TIER_ULT : 300;
 const SAFE_GIFT_REVIVE = Number.isFinite(BEYBLADE_GIFT_REVIVE) ? BEYBLADE_GIFT_REVIVE : 200;
 const SAFE_REVIVE_MAX_PER_ROUND = Number.isFinite(BEYBLADE_REVIVE_MAX_PER_ROUND) ? BEYBLADE_REVIVE_MAX_PER_ROUND : 2;
-const SAFE_HP_MAX = Number.isFinite(BEYBLADE_HP_MAX) ? BEYBLADE_HP_MAX : 3;
+const SAFE_HP_MAX = Number.isFinite(BEYBLADE_HP_MAX) ? BEYBLADE_HP_MAX : 5;
 const SAFE_DAMAGE_WALL = Number.isFinite(BEYBLADE_DAMAGE_WALL) ? BEYBLADE_DAMAGE_WALL : 1;
 const SAFE_DAMAGE_COLLISION = Number.isFinite(BEYBLADE_DAMAGE_COLLISION) ? BEYBLADE_DAMAGE_COLLISION : 1;
-const SAFE_HIT_COOLDOWN_MS = Number.isFinite(BEYBLADE_HIT_COOLDOWN_MS) ? BEYBLADE_HIT_COOLDOWN_MS : 800;
-const SAFE_WALL_SPEED_THRESHOLD = Number.isFinite(BEYBLADE_WALL_SPEED_THRESHOLD) ? BEYBLADE_WALL_SPEED_THRESHOLD : 0.015;
-const SAFE_COLLISION_SPEED_THRESHOLD = Number.isFinite(BEYBLADE_COLLISION_SPEED_THRESHOLD) ? BEYBLADE_COLLISION_SPEED_THRESHOLD : 0.02;
+const SAFE_HIT_COOLDOWN_MS = Number.isFinite(BEYBLADE_HIT_COOLDOWN_MS) ? BEYBLADE_HIT_COOLDOWN_MS : 1200;
+const SAFE_WALL_SPEED_THRESHOLD = Number.isFinite(BEYBLADE_WALL_SPEED_THRESHOLD) ? BEYBLADE_WALL_SPEED_THRESHOLD : 0.03;
+const SAFE_COLLISION_SPEED_THRESHOLD = Number.isFinite(BEYBLADE_COLLISION_SPEED_THRESHOLD) ? BEYBLADE_COLLISION_SPEED_THRESHOLD : 0.028;
+const SAFE_STAMINA_MAX = Number.isFinite(BEYBLADE_STAMINA_MAX) ? BEYBLADE_STAMINA_MAX : 100;
+const SAFE_STAMINA_REGEN_PER_SEC = Number.isFinite(BEYBLADE_STAMINA_REGEN_PER_SEC) ? BEYBLADE_STAMINA_REGEN_PER_SEC : 6;
+const SAFE_STAMINA_BOOST_COST = Number.isFinite(BEYBLADE_STAMINA_BOOST_COST) ? BEYBLADE_STAMINA_BOOST_COST : 28;
+const SAFE_STAMINA_DASH_COST = Number.isFinite(BEYBLADE_STAMINA_DASH_COST) ? BEYBLADE_STAMINA_DASH_COST : 22;
+const SAFE_STAMINA_SHIELD_COST = Number.isFinite(BEYBLADE_STAMINA_SHIELD_COST) ? BEYBLADE_STAMINA_SHIELD_COST : 30;
+const SAFE_SHIELD_DURATION_MS = Number.isFinite(BEYBLADE_SHIELD_DURATION_MS) ? BEYBLADE_SHIELD_DURATION_MS : 2500;
+const SAFE_SHIELD_SLOW_MULT = Number.isFinite(BEYBLADE_SHIELD_SLOW_MULT) ? BEYBLADE_SHIELD_SLOW_MULT : 0.7;
 
 const beybladeIo = io.of("/beyblade");
 const arena = {
@@ -179,6 +193,7 @@ function getOrCreateViewer(viewerId, viewerName) {
       id: viewerId,
       name,
       color: colorForViewer(viewerId),
+      class: "balanced",
       coins: 0,
       gifts: 0,
       lastCommandAt: 0,
@@ -207,6 +222,8 @@ function createBlade(viewer) {
   if (arena.blades.size >= Math.max(2, SAFE_MAX_BLADES)) dropOldestBlade();
   const angle = Math.random() * Math.PI * 2;
   const distance = 0.2 + Math.random() * 0.55;
+  const classKey = normalizeClassKey(viewer.class);
+  const now = Date.now();
   const blade = {
     id: viewer.id,
     ownerId: viewer.id,
@@ -222,9 +239,18 @@ function createBlade(viewer) {
     hp: SAFE_HP_MAX,
     hpMax: SAFE_HP_MAX,
     lastHitAt: 0,
-    createdAt: Date.now(),
-    lastActionAt: Date.now()
+    stamina: SAFE_STAMINA_MAX,
+    staminaMax: SAFE_STAMINA_MAX,
+    staminaRegen: 1,
+    speedMultiplier: 1,
+    class: classKey,
+    lastRegenAt: now,
+    shieldUntil: 0,
+    slowUntil: 0,
+    createdAt: now,
+    lastActionAt: now
   };
+  applyClassToBlade(blade, classKey);
   arena.blades.set(blade.id, blade);
   pushArenaEvent("spawn", `${viewer.name} joined the arena.`);
   return blade;
@@ -292,6 +318,12 @@ function parseChatCommand(text) {
       return { type: "nudge", dx: 0, dy: 1 };
     case "stop":
       return { type: "stop" };
+    case "shield":
+      return { type: "shield" };
+    case "class": {
+      const value = (rest[0] || "").toLowerCase();
+      return { type: "class", value };
+    }
     case "aim":
     case "angle": {
       const deg = asNumber(rest[0], null);
@@ -326,12 +358,57 @@ function normalizeColor(value) {
   return null;
 }
 
-function applyImpulse(blade, dx, dy, spinBoost = 0, energyBoost = 0) {
-  blade.vx = clamp(blade.vx + dx, -arena.maxSpeed, arena.maxSpeed);
-  blade.vy = clamp(blade.vy + dy, -arena.maxSpeed, arena.maxSpeed);
+const CLASS_CONFIG = {
+  balanced: { hpMax: SAFE_HP_MAX, speed: 1, staminaMax: SAFE_STAMINA_MAX, staminaRegen: 1 },
+  light: { hpMax: Math.max(1, SAFE_HP_MAX - 1), speed: 1.15, staminaMax: SAFE_STAMINA_MAX, staminaRegen: 1.1 },
+  heavy: { hpMax: SAFE_HP_MAX + 2, speed: 0.88, staminaMax: SAFE_STAMINA_MAX, staminaRegen: 0.9 }
+};
+
+function normalizeClassKey(value) {
+  const key = String(value || "").toLowerCase();
+  if (key === "light" || key === "heavy" || key === "balanced") return key;
+  return "balanced";
+}
+
+function applyClassToBlade(blade, classKey) {
+  const cfg = CLASS_CONFIG[classKey] || CLASS_CONFIG.balanced;
+  const prevMax = blade.hpMax ?? cfg.hpMax;
+  blade.class = classKey;
+  blade.speedMultiplier = cfg.speed;
+  blade.staminaMax = cfg.staminaMax;
+  blade.staminaRegen = cfg.staminaRegen;
+  blade.hpMax = cfg.hpMax;
+  if (blade.hp == null) blade.hp = blade.hpMax;
+  if (blade.hp > blade.hpMax) blade.hp = blade.hpMax;
+  if (blade.hpMax > prevMax) blade.hp = Math.min(blade.hpMax, blade.hp + (blade.hpMax - prevMax));
+  if (blade.stamina == null) blade.stamina = blade.staminaMax;
+  blade.stamina = clamp(blade.stamina, 0, blade.staminaMax);
+}
+
+function getBladeSpeedMultiplier(blade, now) {
+  let mult = blade.speedMultiplier || 1;
+  if (blade.slowUntil && now < blade.slowUntil) mult *= SAFE_SHIELD_SLOW_MULT;
+  return mult;
+}
+
+function spendStamina(blade, cost) {
+  if (cost <= 0) return { scale: 1, spent: 0 };
+  const stamina = blade.stamina ?? 0;
+  const ratio = stamina / cost;
+  if (ratio < 0.2) return null;
+  const scale = clamp(ratio, 0.2, 1);
+  const spent = cost * scale;
+  blade.stamina = clamp(stamina - spent, 0, blade.staminaMax || SAFE_STAMINA_MAX);
+  return { scale, spent };
+}
+
+function applyImpulse(blade, dx, dy, spinBoost = 0, energyBoost = 0, now = Date.now()) {
+  const maxSpeed = arena.maxSpeed * getBladeSpeedMultiplier(blade, now);
+  blade.vx = clamp(blade.vx + dx, -maxSpeed, maxSpeed);
+  blade.vy = clamp(blade.vy + dy, -maxSpeed, maxSpeed);
   blade.spin = clamp(blade.spin + spinBoost, 0, 2.5);
   blade.energy = clamp(blade.energy + energyBoost, 0, 2);
-  blade.lastActionAt = Date.now();
+  blade.lastActionAt = now;
 }
 
 function giftTierForCoins(coins) {
@@ -380,6 +457,8 @@ function applyDamage(blade, amount, now, reason) {
   const shielded = blade.shieldUntil && now < blade.shieldUntil;
   let multiplier = 1;
   if (shielded) multiplier *= 0.6;
+  if (blade.class === "heavy") multiplier *= 0.85;
+  if (blade.class === "light") multiplier *= 1.1;
   if (blade.spin >= 1.8) multiplier *= 0.4;
   else if (blade.spin >= 1.3) multiplier *= 0.7;
   const scaled = amount * multiplier;
@@ -428,6 +507,28 @@ function getQueueList(limit = 8) {
 function applyCommand(viewer, command, source) {
   if (!command) return;
   if (command.type !== "spawn" && !allowViewerCommand(viewer)) return;
+  const now = Date.now();
+
+  if (command.type === "class") {
+    const classKey = normalizeClassKey(command.value);
+    viewer.class = classKey;
+    const blade = getBlade(viewer);
+    if (blade) applyClassToBlade(blade, classKey);
+    pushArenaEvent("class", `${viewer.name} switched to ${classKey} class.`);
+    return;
+  }
+
+  if (command.type === "shield") {
+    const blade = getBlade(viewer);
+    if (!blade) return;
+    const staminaUse = spendStamina(blade, SAFE_STAMINA_SHIELD_COST);
+    if (!staminaUse) return;
+    blade.shieldUntil = Math.max(blade.shieldUntil || 0, now + SAFE_SHIELD_DURATION_MS);
+    blade.slowUntil = Math.max(blade.slowUntil || 0, now + SAFE_SHIELD_DURATION_MS);
+    pushArenaEvent("shield", `${viewer.name} activated shield.`);
+    return;
+  }
+
   const blade = spawnBlade(viewer);
   if (!blade) return;
 
@@ -435,31 +536,37 @@ function applyCommand(viewer, command, source) {
     case "spawn":
       blade.spin = 1.2;
       blade.energy = 1;
-      applyImpulse(blade, (Math.random() - 0.5) * 0.03, (Math.random() - 0.5) * 0.03, 0.4, 0.2);
+      applyImpulse(blade, (Math.random() - 0.5) * 0.03, (Math.random() - 0.5) * 0.03, 0.4, 0.2, now);
       pushArenaEvent("spawn", `${viewer.name} launched a beyblade (${source}).`);
       break;
     case "boost": {
       const magnitude = clamp(command.magnitude || 1, 0.5, 3);
+      const staminaUse = spendStamina(blade, SAFE_STAMINA_BOOST_COST * magnitude);
+      if (!staminaUse) return;
+      const scale = staminaUse.scale;
       const hasDirection = Math.abs(blade.vx) > 0.001 || Math.abs(blade.vy) > 0.001;
       const angle = hasDirection ? Math.atan2(blade.vy, blade.vx) : Math.random() * Math.PI * 2;
-      const force = 0.018 * magnitude;
-      applyImpulse(blade, Math.cos(angle) * force, Math.sin(angle) * force, 0.3 * magnitude, 0.15 * magnitude);
+      const force = 0.018 * magnitude * scale;
+      applyImpulse(blade, Math.cos(angle) * force, Math.sin(angle) * force, 0.3 * magnitude * scale, 0.15 * magnitude * scale, now);
       pushArenaEvent("boost", `${viewer.name} boosted.`);
       break;
     }
     case "spin":
-      applyImpulse(blade, 0, 0, 0.5, 0.2);
+      applyImpulse(blade, 0, 0, 0.5, 0.2, now);
       pushArenaEvent("spin", `${viewer.name} added spin.`);
       break;
     case "nudge": {
       const nudge = 0.012;
-      applyImpulse(blade, (command.dx || 0) * nudge, (command.dy || 0) * nudge, 0.05, 0.02);
+      applyImpulse(blade, (command.dx || 0) * nudge, (command.dy || 0) * nudge, 0.05, 0.02, now);
       break;
     }
     case "aim": {
+      const staminaUse = spendStamina(blade, SAFE_STAMINA_DASH_COST);
+      if (!staminaUse) return;
+      const scale = staminaUse.scale;
       const angle = ((command.angle || 0) * Math.PI) / 180;
-      const force = 0.02;
-      applyImpulse(blade, Math.cos(angle) * force, Math.sin(angle) * force, 0.1, 0.05);
+      const force = 0.02 * scale;
+      applyImpulse(blade, Math.cos(angle) * force, Math.sin(angle) * force, 0.1 * scale, 0.05 * scale, now);
       pushArenaEvent("aim", `${viewer.name} dashed at ${Math.round(command.angle)}°.`);
       break;
     }
@@ -746,11 +853,17 @@ function stepArena() {
     blade.vy *= arena.friction;
     blade.spin *= arena.spinDecay;
     blade.energy = clamp(blade.energy - 0.002, 0, 2);
+    const regenRate = (SAFE_STAMINA_REGEN_PER_SEC / 1000) * (blade.staminaRegen || 1);
+    const lastRegen = blade.lastRegenAt || now;
+    const regenDelta = Math.max(0, now - lastRegen);
+    blade.stamina = clamp((blade.stamina ?? SAFE_STAMINA_MAX) + regenDelta * regenRate, 0, blade.staminaMax || SAFE_STAMINA_MAX);
+    blade.lastRegenAt = now;
 
     const speed = Math.hypot(blade.vx, blade.vy);
-    if (speed > arena.maxSpeed) {
-      blade.vx = (blade.vx / speed) * arena.maxSpeed;
-      blade.vy = (blade.vy / speed) * arena.maxSpeed;
+    const speedLimit = arena.maxSpeed * getBladeSpeedMultiplier(blade, now);
+    if (speed > speedLimit) {
+      blade.vx = (blade.vx / speed) * speedLimit;
+      blade.vy = (blade.vy / speed) * speedLimit;
     }
 
     const limit = arena.radius - blade.radius;
@@ -899,6 +1012,9 @@ function packArenaState() {
       radius: blade.radius,
       hp: blade.hp ?? SAFE_HP_MAX,
       hpMax: blade.hpMax ?? SAFE_HP_MAX,
+      stamina: blade.stamina ?? SAFE_STAMINA_MAX,
+      staminaMax: blade.staminaMax ?? SAFE_STAMINA_MAX,
+      class: blade.class || "balanced",
       shielded: blade.shieldUntil ? blade.shieldUntil > now : false
     }))
   };

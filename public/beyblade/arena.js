@@ -430,6 +430,19 @@ function renderHealthDots(x, y, hp, hpMax) {
   }
 }
 
+function renderStaminaArc(x, y, radius, stamina, staminaMax) {
+  if (!staminaMax) return;
+  const ratio = clamp((stamina || 0) / staminaMax, 0, 1);
+  if (ratio <= 0) return;
+  const start = -Math.PI / 2;
+  const end = start + ratio * Math.PI * 2;
+  ctx.strokeStyle = "rgba(0, 242, 234, 0.75)";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(x, y, radius, start, end);
+  ctx.stroke();
+}
+
 function updateEvents(events) {
   eventsEl.replaceChildren();
   events.forEach((event) => {
@@ -606,6 +619,7 @@ function renderArena(now, dt) {
     ctx.textAlign = "center";
     ctx.fillText(blade.name || "Viewer", x, y - r - 6);
     renderHealthDots(x, y - r - 18, blade.hp, blade.hpMax);
+    renderStaminaArc(x, y, r * 1.55, blade.stamina, blade.staminaMax);
   });
 
   renderSparks(dt);
