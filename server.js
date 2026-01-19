@@ -55,6 +55,11 @@ const BEYBLADE_ROUND_SHRINK_END_MS = Number(process.env.BEYBLADE_ROUND_SHRINK_EN
 const BEYBLADE_ROUND_COOLDOWN_MS = Number(process.env.BEYBLADE_ROUND_COOLDOWN_MS || 8000);
 const BEYBLADE_MIN_PLAYERS = Number(process.env.BEYBLADE_MIN_PLAYERS || 2);
 const BEYBLADE_MIN_RADIUS = Number(process.env.BEYBLADE_MIN_RADIUS || 0.55);
+const BEYBLADE_GIFT_TIER_BOOST = Number(process.env.BEYBLADE_GIFT_TIER_BOOST || 10);
+const BEYBLADE_GIFT_TIER_SHIELD = Number(process.env.BEYBLADE_GIFT_TIER_SHIELD || 50);
+const BEYBLADE_GIFT_TIER_SHOCK = Number(process.env.BEYBLADE_GIFT_TIER_SHOCK || 150);
+const BEYBLADE_GIFT_TIER_ULT = Number(process.env.BEYBLADE_GIFT_TIER_ULT || 300);
+const BEYBLADE_GIFT_REVIVE = Number(process.env.BEYBLADE_GIFT_REVIVE || 200);
 const BEYBLADE_COLORS = ["#0f0f0f", "#1a1a1a", "#00f2ea", "#ff0050", "#ffffff", "#fbb1d5", "#ffd166", "#6a4c93", "#2f9e44"];
 const SAFE_MAX_BLADES = Number.isFinite(BEYBLADE_MAX_BLADES) ? BEYBLADE_MAX_BLADES : 24;
 const SAFE_TICK_MS = Number.isFinite(BEYBLADE_TICK_MS) ? BEYBLADE_TICK_MS : 50;
@@ -66,6 +71,11 @@ const SAFE_ROUND_SHRINK_END_MS = Number.isFinite(BEYBLADE_ROUND_SHRINK_END_MS) ?
 const SAFE_ROUND_COOLDOWN_MS = Number.isFinite(BEYBLADE_ROUND_COOLDOWN_MS) ? BEYBLADE_ROUND_COOLDOWN_MS : 8000;
 const SAFE_MIN_PLAYERS = Number.isFinite(BEYBLADE_MIN_PLAYERS) ? BEYBLADE_MIN_PLAYERS : 2;
 const SAFE_MIN_RADIUS = Number.isFinite(BEYBLADE_MIN_RADIUS) ? BEYBLADE_MIN_RADIUS : 0.55;
+const SAFE_GIFT_TIER_BOOST = Number.isFinite(BEYBLADE_GIFT_TIER_BOOST) ? BEYBLADE_GIFT_TIER_BOOST : 10;
+const SAFE_GIFT_TIER_SHIELD = Number.isFinite(BEYBLADE_GIFT_TIER_SHIELD) ? BEYBLADE_GIFT_TIER_SHIELD : 50;
+const SAFE_GIFT_TIER_SHOCK = Number.isFinite(BEYBLADE_GIFT_TIER_SHOCK) ? BEYBLADE_GIFT_TIER_SHOCK : 150;
+const SAFE_GIFT_TIER_ULT = Number.isFinite(BEYBLADE_GIFT_TIER_ULT) ? BEYBLADE_GIFT_TIER_ULT : 300;
+const SAFE_GIFT_REVIVE = Number.isFinite(BEYBLADE_GIFT_REVIVE) ? BEYBLADE_GIFT_REVIVE : 200;
 
 const beybladeIo = io.of("/beyblade");
 const arena = {
@@ -94,7 +104,9 @@ const arena = {
     winnerStreak: 0,
     lastWinnerId: null,
     streaks: new Map(),
-    cooldownUntil: 0
+    cooldownUntil: 0,
+    eliminated: new Map(),
+    revived: new Set()
   }
 };
 
@@ -297,6 +309,45 @@ function applyImpulse(blade, dx, dy, spinBoost = 0, energyBoost = 0) {
   blade.lastActionAt = Date.now();
 }
 
+function giftTierForCoins(coins) {
+  if (coins >= SAFE_GIFT_TIER_ULT) return "ult";
+  if (coins >= SAFE_GIFT_TIER_SHOCK) return "shock";
+  if (coins >= SAFE_GIFT_TIER_SHIELD) return "shield";
+  if (coins >= SAFE_GIFT_TIER_BOOST) return "boost";
+  return "spark";
+}
+
+function applyShield(blade, now, durationMs) {
+  blade.shieldUntil = Math.max(blade.shieldUntil || 0, now + durationMs);
+}
+
+function applyShockwave(origin, power) {
+  const range = 0.5 + power * 0.08;
+  for (const blade of arena.blades.values()) {
+    if (blade.id === origin.id) continue;
+    const dx = blade.x - origin.x;
+    const dy = blade.y - origin.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist <= 0 || dist > range) continue;
+    const falloff = 1 - dist / range;
+    const force = 0.025 * power * falloff;
+    applyImpulse(blade, (dx / dist) * force, (dy / dist) * force, 0.05 * power, 0.02 * power);
+  }
+}
+
+function markEliminated(blade, now, reason) {
+  if (arena.round.status === "running") {
+    arena.round.eliminated.set(blade.id, {
+      id: blade.id,
+      name: blade.name,
+      color: blade.color,
+      eliminatedAt: now,
+      reason
+    });
+  }
+  pushArenaEvent("out", `${blade.name} spun out.`, { viewerId: blade.id, reason });
+}
+
 function applyCommand(viewer, command, source) {
   if (!command) return;
   if (command.type !== "spawn" && !allowViewerCommand(viewer)) return;
@@ -365,26 +416,78 @@ function applyCommand(viewer, command, source) {
 }
 
 function handleGift(viewer, event) {
-  const blade = spawnBlade(viewer, { allowDuringRound: true });
-  if (!blade) return;
+  const now = Date.now();
   const value = asNumber(event.value || event.amount || event.coins, 0);
   const repeat = Math.max(1, asNumber(event.repeat || event.count, 1));
   const coins = value * repeat;
+  const tier = giftTierForCoins(coins);
+  const giftName = safeText(event.name || event.giftName || "Gift", 24);
+
+  let blade = getBlade(viewer);
+  if (!blade) {
+    if (arena.round.status === "running") {
+      const canRevive = coins >= SAFE_GIFT_REVIVE
+        && arena.round.eliminated.has(viewer.id)
+        && !arena.round.revived.has(viewer.id);
+      if (canRevive) {
+        blade = createBlade(viewer);
+        blade.spin = 1.4;
+        blade.energy = 1.4;
+        applyImpulse(blade, (Math.random() - 0.5) * 0.04, (Math.random() - 0.5) * 0.04, 0.4, 0.2);
+        arena.round.eliminated.delete(viewer.id);
+        arena.round.revived.add(viewer.id);
+        pushArenaEvent("revive", `${viewer.name} revived with ${giftName}!`, {
+          viewerId: viewer.id,
+          coins,
+          repeat,
+          giftName,
+          tier,
+          revive: true
+        });
+      } else {
+        queueViewer(viewer);
+      }
+    } else {
+      blade = spawnBlade(viewer);
+    }
+  }
+
   viewer.coins += coins;
   viewer.gifts += repeat;
   arena.totals.coins += coins;
   arena.totals.gifts += repeat;
   arena.totals.revenueUsd = Number((arena.totals.coins * SAFE_COIN_TO_USD).toFixed(2));
 
+  if (!blade) {
+    pushArenaEvent("gift", `${viewer.name} sent ${giftName} x${repeat}.`, {
+      viewerId: viewer.id,
+      coins,
+      repeat,
+      giftName,
+      tier,
+      queued: true
+    });
+    return;
+  }
+
   const angle = Math.random() * Math.PI * 2;
-  const boost = clamp(coins / 200, 0.2, 1.2);
+  const boost = clamp(coins / 200, 0.2, 1.4);
   applyImpulse(blade, Math.cos(angle) * 0.02 * boost, Math.sin(angle) * 0.02 * boost, 0.4 * boost, 0.2 * boost);
-  const giftName = safeText(event.name || event.giftName || "Gift", 24);
-  pushArenaEvent("gift", `${viewer.name} sent ${giftName} x${repeat}.`, {
+
+  if (tier === "shield") applyShield(blade, now, 3500);
+  if (tier === "shock") applyShockwave(blade, 1.2);
+  if (tier === "ult") applyShockwave(blade, 1.9);
+
+  const tierLabel = tier.toUpperCase();
+  const message = tier === "spark"
+    ? `${viewer.name} sent ${giftName} x${repeat}.`
+    : `${viewer.name} triggered ${tierLabel} with ${giftName} x${repeat}.`;
+  pushArenaEvent("gift", message, {
     viewerId: viewer.id,
     coins,
     repeat,
-    giftName
+    giftName,
+    tier
   });
 }
 
@@ -405,6 +508,8 @@ function startRound(now) {
   arena.round.minRadius = SAFE_MIN_RADIUS;
   arena.round.shrinkAnnounced = false;
   arena.round.banner = null;
+  arena.round.eliminated.clear();
+  arena.round.revived.clear();
   arena.radius = arena.round.baseRadius;
   pushArenaEvent("round", "Battle started!");
 }
@@ -461,6 +566,8 @@ function resetRound() {
   arena.round.winnerName = null;
   arena.round.winnerStreak = 0;
   arena.round.cooldownUntil = 0;
+  arena.round.eliminated.clear();
+  arena.round.revived.clear();
   arena.radius = arena.round.baseRadius;
 
   if (arena.pending.size) {
@@ -573,7 +680,9 @@ function stepArena() {
       blade.vy -= 2 * dot * ny;
       blade.vx *= arena.bounce;
       blade.vy *= arena.bounce;
-      blade.spin = clamp(blade.spin - 0.05, 0, 2.5);
+      const shielded = blade.shieldUntil && now < blade.shieldUntil;
+      const spinLoss = shielded ? 0.02 : 0.05;
+      blade.spin = clamp(blade.spin - spinLoss, 0, 2.5);
     }
   }
 
@@ -604,8 +713,11 @@ function stepArena() {
           b.vx += impulse * nx;
           b.vy += impulse * ny;
         }
-        a.spin = clamp(a.spin - 0.03, 0, 2.5);
-        b.spin = clamp(b.spin - 0.03, 0, 2.5);
+        const shieldA = a.shieldUntil && now < a.shieldUntil;
+        const shieldB = b.shieldUntil && now < b.shieldUntil;
+        const loss = 0.03;
+        a.spin = clamp(a.spin - (shieldA ? loss * 0.4 : loss), 0, 2.5);
+        b.spin = clamp(b.spin - (shieldB ? loss * 0.4 : loss), 0, 2.5);
       }
     }
   }
@@ -615,7 +727,7 @@ function stepArena() {
     const speed = Math.hypot(blade.vx, blade.vy);
     if (blade.spin < 0.15 && speed < 0.002 && idleTime > 15000) {
       arena.blades.delete(blade.id);
-      pushArenaEvent("out", `${blade.name} spun out.`);
+      markEliminated(blade, now, "spinout");
     }
   }
 

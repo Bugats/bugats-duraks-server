@@ -118,6 +118,18 @@ button:hover {
   border-left: 3px solid #ffd166;
 }
 
+#events .event.revive {
+  border-left: 3px solid #00f2ea;
+}
+
+#events .event.round {
+  border-left: 3px solid #6a4c93;
+}
+
+#events .event.queue {
+  border-left: 3px solid #4d79ff;
+}
+
 #events .event.out {
   border-left: 3px solid #ff8c42;
 }

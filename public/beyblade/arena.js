@@ -135,7 +135,16 @@ function spawnGiftEffect(event, payload) {
 
   const coins = Number(meta.coins || meta.value || 0);
   const repeat = Number(meta.repeat || 1);
-  const strength = clamp(1 + coins / 200 + repeat / 10, 1, 3);
+  const tier = String(meta.tier || "").toLowerCase();
+  let strength = clamp(1 + coins / 200 + repeat / 10, 1, 3);
+  if (tier === "boost") strength = Math.max(strength, 1.4);
+  if (tier === "shield") strength = Math.max(strength, 1.8);
+  if (tier === "shock") strength = Math.max(strength, 2.2);
+  if (tier === "ult") strength = Math.max(strength, 2.8);
+  if (event.type === "revive") {
+    strength = Math.max(strength, 3);
+    color = "#ffd166";
+  }
 
   effects.push({
     id: event.id,
@@ -154,7 +163,7 @@ function handleIncomingEvents(events, payload) {
   const nextSeen = new Set();
   (events || []).forEach((event) => {
     nextSeen.add(event.id);
-    if (!seenEventIds.has(event.id) && event.type === "gift") {
+    if (!seenEventIds.has(event.id) && (event.type === "gift" || event.type === "revive")) {
       spawnGiftEffect(event, payload);
     }
   });
