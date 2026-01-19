@@ -60,6 +60,8 @@ let zoomFactor = 1;
 let roundBanner = null;
 let lastBannerId = null;
 const logoCanvas = document.createElement("canvas");
+const backgroundCanvas = document.createElement("canvas");
+let backgroundPattern = null;
 const TIER_COLORS = {
   boost: "#00f2ea",
   shield: "#4d79ff",
@@ -73,6 +75,7 @@ function resizeCanvas() {
   canvas.height = window.innerHeight;
   baseArenaScale = Math.min(canvas.width, canvas.height) * 0.45;
   arenaScale = baseArenaScale * zoomFactor;
+  buildBackgroundPattern();
 }
 
 function drawTikTokLogo(target, size) {
@@ -108,6 +111,40 @@ function buildLogoCanvas() {
   const logoCtx = logoCanvas.getContext("2d");
   logoCtx.clearRect(0, 0, logoCanvas.width, logoCanvas.height);
   drawTikTokLogo(logoCtx, 90);
+}
+
+function buildBackgroundPattern() {
+  backgroundCanvas.width = 320;
+  backgroundCanvas.height = 320;
+  const bg = backgroundCanvas.getContext("2d");
+  bg.clearRect(0, 0, backgroundCanvas.width, backgroundCanvas.height);
+  bg.fillStyle = "#050505";
+  bg.fillRect(0, 0, backgroundCanvas.width, backgroundCanvas.height);
+
+  bg.strokeStyle = "rgba(255, 255, 255, 0.04)";
+  bg.lineWidth = 1;
+  for (let x = 0; x < backgroundCanvas.width; x += 40) {
+    bg.beginPath();
+    bg.moveTo(x, 0);
+    bg.lineTo(x, backgroundCanvas.height);
+    bg.stroke();
+  }
+  for (let y = 0; y < backgroundCanvas.height; y += 40) {
+    bg.beginPath();
+    bg.moveTo(0, y);
+    bg.lineTo(backgroundCanvas.width, y);
+    bg.stroke();
+  }
+
+  for (let i = 0; i < 260; i += 1) {
+    const x = Math.random() * backgroundCanvas.width;
+    const y = Math.random() * backgroundCanvas.height;
+    const alpha = 0.05 + Math.random() * 0.1;
+    bg.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+    bg.fillRect(x, y, 1, 1);
+  }
+
+  backgroundPattern = ctx.createPattern(backgroundCanvas, "repeat");
 }
 
 function hexToRgb(hex) {
@@ -379,6 +416,20 @@ function renderRoundBanner(now) {
   ctx.restore();
 }
 
+function renderHealthDots(x, y, hp, hpMax) {
+  const max = Math.max(1, hpMax || 1);
+  const current = clamp(Math.ceil(hp || 0), 0, max);
+  const spacing = 8;
+  const size = 3;
+  const startX = x - ((max - 1) * spacing) / 2;
+  for (let i = 0; i < max; i += 1) {
+    ctx.beginPath();
+    ctx.fillStyle = i < current ? "#ff4d4d" : "rgba(255, 255, 255, 0.2)";
+    ctx.arc(startX + i * spacing, y, size, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
 function updateEvents(events) {
   eventsEl.replaceChildren();
   events.forEach((event) => {
@@ -480,11 +531,28 @@ function renderArena(now, dt) {
   bgGradient.addColorStop(1, "#020202");
   ctx.fillStyle = bgGradient;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
+  if (backgroundPattern) {
+    ctx.save();
+    ctx.globalAlpha = 0.35;
+    ctx.fillStyle = backgroundPattern;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.restore();
+  }
 
-  ctx.strokeStyle = "rgba(255, 255, 255, 0.1)";
-  ctx.lineWidth = 4;
+  ctx.save();
+  ctx.strokeStyle = "rgba(255, 60, 60, 0.9)";
+  ctx.shadowColor = "rgba(255, 30, 30, 0.9)";
+  ctx.shadowBlur = 18;
+  ctx.lineWidth = 5;
   ctx.beginPath();
   ctx.arc(centerX, centerY, ringScale, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.08)";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(centerX, centerY, ringScale * 0.98, 0, Math.PI * 2);
   ctx.stroke();
 
   if (!state) return;
@@ -537,6 +605,7 @@ function renderArena(now, dt) {
     ctx.font = "12px Segoe UI, sans-serif";
     ctx.textAlign = "center";
     ctx.fillText(blade.name || "Viewer", x, y - r - 6);
+    renderHealthDots(x, y - r - 18, blade.hp, blade.hpMax);
   });
 
   renderSparks(dt);

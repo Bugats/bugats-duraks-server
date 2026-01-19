@@ -61,6 +61,12 @@ const BEYBLADE_GIFT_TIER_SHOCK = Number(process.env.BEYBLADE_GIFT_TIER_SHOCK || 
 const BEYBLADE_GIFT_TIER_ULT = Number(process.env.BEYBLADE_GIFT_TIER_ULT || 300);
 const BEYBLADE_GIFT_REVIVE = Number(process.env.BEYBLADE_GIFT_REVIVE || 200);
 const BEYBLADE_REVIVE_MAX_PER_ROUND = Number(process.env.BEYBLADE_REVIVE_MAX_PER_ROUND || 2);
+const BEYBLADE_HP_MAX = Number(process.env.BEYBLADE_HP_MAX || 3);
+const BEYBLADE_DAMAGE_WALL = Number(process.env.BEYBLADE_DAMAGE_WALL || 1);
+const BEYBLADE_DAMAGE_COLLISION = Number(process.env.BEYBLADE_DAMAGE_COLLISION || 1);
+const BEYBLADE_HIT_COOLDOWN_MS = Number(process.env.BEYBLADE_HIT_COOLDOWN_MS || 800);
+const BEYBLADE_WALL_SPEED_THRESHOLD = Number(process.env.BEYBLADE_WALL_SPEED_THRESHOLD || 0.015);
+const BEYBLADE_COLLISION_SPEED_THRESHOLD = Number(process.env.BEYBLADE_COLLISION_SPEED_THRESHOLD || 0.02);
 const BEYBLADE_COLORS = ["#0f0f0f", "#1a1a1a", "#00f2ea", "#ff0050", "#ffffff", "#fbb1d5", "#ffd166", "#6a4c93", "#2f9e44"];
 const SAFE_MAX_BLADES = Number.isFinite(BEYBLADE_MAX_BLADES) ? BEYBLADE_MAX_BLADES : 24;
 const SAFE_TICK_MS = Number.isFinite(BEYBLADE_TICK_MS) ? BEYBLADE_TICK_MS : 50;
@@ -78,6 +84,12 @@ const SAFE_GIFT_TIER_SHOCK = Number.isFinite(BEYBLADE_GIFT_TIER_SHOCK) ? BEYBLAD
 const SAFE_GIFT_TIER_ULT = Number.isFinite(BEYBLADE_GIFT_TIER_ULT) ? BEYBLADE_GIFT_TIER_ULT : 300;
 const SAFE_GIFT_REVIVE = Number.isFinite(BEYBLADE_GIFT_REVIVE) ? BEYBLADE_GIFT_REVIVE : 200;
 const SAFE_REVIVE_MAX_PER_ROUND = Number.isFinite(BEYBLADE_REVIVE_MAX_PER_ROUND) ? BEYBLADE_REVIVE_MAX_PER_ROUND : 2;
+const SAFE_HP_MAX = Number.isFinite(BEYBLADE_HP_MAX) ? BEYBLADE_HP_MAX : 3;
+const SAFE_DAMAGE_WALL = Number.isFinite(BEYBLADE_DAMAGE_WALL) ? BEYBLADE_DAMAGE_WALL : 1;
+const SAFE_DAMAGE_COLLISION = Number.isFinite(BEYBLADE_DAMAGE_COLLISION) ? BEYBLADE_DAMAGE_COLLISION : 1;
+const SAFE_HIT_COOLDOWN_MS = Number.isFinite(BEYBLADE_HIT_COOLDOWN_MS) ? BEYBLADE_HIT_COOLDOWN_MS : 800;
+const SAFE_WALL_SPEED_THRESHOLD = Number.isFinite(BEYBLADE_WALL_SPEED_THRESHOLD) ? BEYBLADE_WALL_SPEED_THRESHOLD : 0.015;
+const SAFE_COLLISION_SPEED_THRESHOLD = Number.isFinite(BEYBLADE_COLLISION_SPEED_THRESHOLD) ? BEYBLADE_COLLISION_SPEED_THRESHOLD : 0.02;
 
 const beybladeIo = io.of("/beyblade");
 const arena = {
@@ -202,6 +214,9 @@ function createBlade(viewer) {
     spin: 0.8 + Math.random() * 0.4,
     energy: 1,
     radius: 0.085,
+    hp: SAFE_HP_MAX,
+    hpMax: SAFE_HP_MAX,
+    lastHitAt: 0,
     createdAt: Date.now(),
     lastActionAt: Date.now()
   };
@@ -350,7 +365,21 @@ function markEliminated(blade, now, reason) {
       reason
     });
   }
-  pushArenaEvent("out", `${blade.name} spun out.`, { viewerId: blade.id, reason });
+  const label = reason === "ringout" ? "ringed out" : "spun out";
+  pushArenaEvent("out", `${blade.name} ${label}.`, { viewerId: blade.id, reason });
+}
+
+function applyDamage(blade, amount, now, reason) {
+  if (now - (blade.lastHitAt || 0) < SAFE_HIT_COOLDOWN_MS) return false;
+  const shielded = blade.shieldUntil && now < blade.shieldUntil;
+  const finalDamage = shielded ? amount * 0.5 : amount;
+  blade.hp = Math.max(0, (blade.hp ?? SAFE_HP_MAX) - finalDamage);
+  blade.lastHitAt = now;
+  if (blade.hp <= 0) {
+    markEliminated(blade, now, reason);
+    return true;
+  }
+  return false;
 }
 
 function recordWin(winner) {
@@ -696,7 +725,9 @@ function stepArena() {
   const now = Date.now();
   updateRoundState(now);
   const blades = [...arena.blades.values()];
+  const removed = new Set();
   for (const blade of blades) {
+    if (removed.has(blade.id)) continue;
     blade.x += blade.vx;
     blade.y += blade.vy;
     blade.vx *= arena.friction;
@@ -725,6 +756,12 @@ function stepArena() {
       const shielded = blade.shieldUntil && now < blade.shieldUntil;
       const spinLoss = shielded ? 0.02 : 0.05;
       blade.spin = clamp(blade.spin - spinLoss, 0, 2.5);
+
+      const speed = Math.hypot(blade.vx, blade.vy);
+      if (speed > SAFE_WALL_SPEED_THRESHOLD) {
+        const eliminated = applyDamage(blade, SAFE_DAMAGE_WALL, now, "ringout");
+        if (eliminated) removed.add(blade.id);
+      }
     }
   }
 
@@ -732,6 +769,7 @@ function stepArena() {
     for (let j = i + 1; j < blades.length; j += 1) {
       const a = blades[i];
       const b = blades[j];
+      if (removed.has(a.id) || removed.has(b.id)) continue;
       const dx = b.x - a.x;
       const dy = b.y - a.y;
       const dist = Math.hypot(dx, dy);
@@ -760,18 +798,33 @@ function stepArena() {
         const loss = 0.03;
         a.spin = clamp(a.spin - (shieldA ? loss * 0.4 : loss), 0, 2.5);
         b.spin = clamp(b.spin - (shieldB ? loss * 0.4 : loss), 0, 2.5);
+
+        const relSpeed = Math.hypot(dvx, dvy);
+        if (relSpeed > SAFE_COLLISION_SPEED_THRESHOLD) {
+          if (applyDamage(a, SAFE_DAMAGE_COLLISION, now, "collision")) removed.add(a.id);
+          if (applyDamage(b, SAFE_DAMAGE_COLLISION, now, "collision")) removed.add(b.id);
+        }
       }
     }
   }
 
   for (const blade of arena.blades.values()) {
+    if (removed.has(blade.id)) continue;
     const idleTime = now - blade.lastActionAt;
     const speed = Math.hypot(blade.vx, blade.vy);
     if (blade.spin < 0.15 && speed < 0.002 && idleTime > 15000) {
-      arena.blades.delete(blade.id);
+      removed.add(blade.id);
       markEliminated(blade, now, "spinout");
     }
   }
+
+  if (removed.size > 0) {
+    for (const id of removed.values()) {
+      arena.blades.delete(id);
+    }
+  }
+
+  updateRoundState(now);
 
   if (beybladeIo.sockets.size > 0) {
     beybladeIo.emit("state", packArenaState());
@@ -828,6 +881,8 @@ function packArenaState() {
       spin: blade.spin,
       energy: blade.energy,
       radius: blade.radius,
+      hp: blade.hp ?? SAFE_HP_MAX,
+      hpMax: blade.hpMax ?? SAFE_HP_MAX,
       shielded: blade.shieldUntil ? blade.shieldUntil > now : false
     }))
   };
