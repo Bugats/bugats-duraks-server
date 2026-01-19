@@ -151,6 +151,7 @@ const arena = {
   pending: new Set(),
   round: {
     status: "idle",
+    phase: "idle",
     countdownEndsAt: 0,
     startAt: 0,
     shrinkStartAt: 0,
@@ -245,6 +246,12 @@ function pushArenaEvent(type, message, meta = {}) {
     meta: (meta && typeof meta === "object") ? meta : {}
   });
   if (arena.events.length > 20) arena.events.shift();
+}
+
+function setRoundPhase(phase, message) {
+  if (arena.round.phase === phase) return;
+  arena.round.phase = phase;
+  if (message) pushArenaEvent("round", message);
 }
 
 function getOrCreateViewer(viewerId, viewerName) {
@@ -794,6 +801,7 @@ function handleGift(viewer, event) {
 
 function startRoundCountdown(now) {
   arena.round.status = "countdown";
+  setRoundPhase("start");
   arena.round.countdownEndsAt = now + SAFE_ROUND_COUNTDOWN_MS;
   arena.round.banner = null;
   pushArenaEvent("round", `Battle starts in ${Math.round(SAFE_ROUND_COUNTDOWN_MS / 1000)}s.`);
@@ -801,6 +809,7 @@ function startRoundCountdown(now) {
 
 function startRound(now) {
   arena.round.status = "running";
+  setRoundPhase("start");
   arena.round.startAt = now;
   arena.round.countdownEndsAt = 0;
   arena.round.shrinkStartAt = now + SAFE_ROUND_SHRINK_START_MS;
@@ -819,6 +828,7 @@ function startRound(now) {
 
 function finishRound(now, winner) {
   arena.round.status = "finished";
+  setRoundPhase("end", "End phase: final duel!");
   arena.round.cooldownUntil = now + SAFE_ROUND_COOLDOWN_MS;
   arena.round.shrinkAnnounced = false;
   arena.radius = arena.round.baseRadius;
@@ -863,6 +873,7 @@ function finishRound(now, winner) {
 
 function resetRound() {
   arena.round.status = "idle";
+  setRoundPhase("idle");
   arena.round.countdownEndsAt = 0;
   arena.round.startAt = 0;
   arena.round.shrinkStartAt = 0;
@@ -882,6 +893,7 @@ function resetRound() {
 function updateRoundState(now) {
   const activeCount = arena.blades.size;
   if (arena.round.status === "idle") {
+    setRoundPhase("idle");
     if (activeCount >= SAFE_MIN_PLAYERS && now >= arena.round.cooldownUntil) {
       startRoundCountdown(now);
     }
@@ -889,9 +901,11 @@ function updateRoundState(now) {
   }
 
   if (arena.round.status === "countdown") {
+    setRoundPhase("start");
     if (activeCount < SAFE_MIN_PLAYERS) {
       arena.round.status = "idle";
       arena.round.countdownEndsAt = 0;
+      setRoundPhase("idle");
       pushArenaEvent("round", "Countdown cancelled. Waiting for players.");
       return;
     }
@@ -900,10 +914,24 @@ function updateRoundState(now) {
   }
 
   if (arena.round.status === "running") {
+    let nextPhase = "start";
+    if (activeCount <= 2 || (arena.round.shrinkEndAt && now >= arena.round.shrinkEndAt)) {
+      nextPhase = "end";
+    } else if (arena.round.shrinkStartAt && now >= arena.round.shrinkStartAt) {
+      nextPhase = "middle";
+    }
+
+    if (nextPhase === "middle") {
+      setRoundPhase("middle", "Middle phase: arena shrinking.");
+    } else if (nextPhase === "end") {
+      setRoundPhase("end", "End phase: final duel!");
+    } else {
+      setRoundPhase("start");
+    }
+
     if (now >= arena.round.shrinkStartAt) {
       if (!arena.round.shrinkAnnounced) {
         arena.round.shrinkAnnounced = true;
-        pushArenaEvent("round", "Arena shrinking!");
       }
       const total = Math.max(1, arena.round.shrinkEndAt - arena.round.shrinkStartAt);
       const progress = clamp((now - arena.round.shrinkStartAt) / total, 0, 1);
@@ -920,6 +948,7 @@ function updateRoundState(now) {
   }
 
   if (arena.round.status === "finished") {
+    setRoundPhase("end");
     if (now >= arena.round.cooldownUntil) resetRound();
   }
 }
@@ -1107,6 +1136,7 @@ function packArenaState() {
     },
     round: {
       status: arena.round.status,
+      phase: arena.round.phase,
       countdownMs,
       startAt: arena.round.startAt,
       shrinkStartAt: arena.round.shrinkStartAt,

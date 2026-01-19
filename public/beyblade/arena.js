@@ -564,6 +564,32 @@ function updateRoundInfo(round, payload) {
   const now = payload?.ts || Date.now();
   const status = round.status || "idle";
   const alive = round.alive ?? payload?.stats?.blades ?? 0;
+  let phase = round.phase;
+
+  if (!phase) {
+    if (status === "finished") {
+      phase = "end";
+    } else if (status === "countdown") {
+      phase = "start";
+    } else if (status === "running") {
+      if (alive <= 2 || (round.shrinkEndAt && now >= round.shrinkEndAt)) {
+        phase = "end";
+      } else if (round.shrinkStartAt && now >= round.shrinkStartAt) {
+        phase = "middle";
+      } else {
+        phase = "start";
+      }
+    } else {
+      phase = "idle";
+    }
+  }
+
+  const phaseLabel = {
+    start: "Start",
+    middle: "Middle",
+    end: "End",
+    idle: "Waiting"
+  }[phase] || "Start";
 
   if (status === "countdown") {
     const seconds = Math.ceil((round.countdownMs || 0) / 1000);
@@ -588,7 +614,7 @@ function updateRoundInfo(round, payload) {
     }
   }
   roundTimersEl.textContent = timerText;
-  roundMetaEl.textContent = `Alive: ${alive} | Revives: ${round.revivesUsed || 0}/${round.reviveLimit || 0}`;
+  roundMetaEl.textContent = `Phase: ${phaseLabel} | Alive: ${alive} | Revives: ${round.revivesUsed || 0}/${round.reviveLimit || 0}`;
 }
 
 function updateQueue(queue) {
