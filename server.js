@@ -823,6 +823,7 @@ function finishRound(now, winner) {
   arena.round.shrinkAnnounced = false;
   arena.radius = arena.round.baseRadius;
   arena.blades.clear();
+  arena.pending.clear();
 
   let streak = 0;
   if (winner) {
@@ -875,14 +876,7 @@ function resetRound() {
   arena.round.eliminated.clear();
   arena.round.revived.clear();
   arena.radius = arena.round.baseRadius;
-
-  if (arena.pending.size) {
-    for (const viewerId of arena.pending.values()) {
-      const viewer = arena.viewers.get(viewerId);
-      if (viewer) createBlade(viewer);
-    }
-    arena.pending.clear();
-  }
+  arena.pending.clear();
 }
 
 function updateRoundState(now) {
