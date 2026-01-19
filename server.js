@@ -60,6 +60,7 @@ const BEYBLADE_GIFT_TIER_SHIELD = Number(process.env.BEYBLADE_GIFT_TIER_SHIELD |
 const BEYBLADE_GIFT_TIER_SHOCK = Number(process.env.BEYBLADE_GIFT_TIER_SHOCK || 150);
 const BEYBLADE_GIFT_TIER_ULT = Number(process.env.BEYBLADE_GIFT_TIER_ULT || 300);
 const BEYBLADE_GIFT_REVIVE = Number(process.env.BEYBLADE_GIFT_REVIVE || 200);
+const BEYBLADE_REVIVE_MAX_PER_ROUND = Number(process.env.BEYBLADE_REVIVE_MAX_PER_ROUND || 2);
 const BEYBLADE_COLORS = ["#0f0f0f", "#1a1a1a", "#00f2ea", "#ff0050", "#ffffff", "#fbb1d5", "#ffd166", "#6a4c93", "#2f9e44"];
 const SAFE_MAX_BLADES = Number.isFinite(BEYBLADE_MAX_BLADES) ? BEYBLADE_MAX_BLADES : 24;
 const SAFE_TICK_MS = Number.isFinite(BEYBLADE_TICK_MS) ? BEYBLADE_TICK_MS : 50;
@@ -76,6 +77,7 @@ const SAFE_GIFT_TIER_SHIELD = Number.isFinite(BEYBLADE_GIFT_TIER_SHIELD) ? BEYBL
 const SAFE_GIFT_TIER_SHOCK = Number.isFinite(BEYBLADE_GIFT_TIER_SHOCK) ? BEYBLADE_GIFT_TIER_SHOCK : 150;
 const SAFE_GIFT_TIER_ULT = Number.isFinite(BEYBLADE_GIFT_TIER_ULT) ? BEYBLADE_GIFT_TIER_ULT : 300;
 const SAFE_GIFT_REVIVE = Number.isFinite(BEYBLADE_GIFT_REVIVE) ? BEYBLADE_GIFT_REVIVE : 200;
+const SAFE_REVIVE_MAX_PER_ROUND = Number.isFinite(BEYBLADE_REVIVE_MAX_PER_ROUND) ? BEYBLADE_REVIVE_MAX_PER_ROUND : 2;
 
 const beybladeIo = io.of("/beyblade");
 const arena = {
@@ -88,6 +90,7 @@ const arena = {
   viewers: new Map(),
   events: [],
   totals: { coins: 0, gifts: 0, revenueUsd: 0 },
+  winStats: new Map(),
   pending: new Set(),
   round: {
     status: "idle",
@@ -105,6 +108,8 @@ const arena = {
     lastWinnerId: null,
     streaks: new Map(),
     cooldownUntil: 0,
+    reviveLimit: SAFE_REVIVE_MAX_PER_ROUND,
+    revivesUsed: 0,
     eliminated: new Map(),
     revived: new Set()
   }
@@ -348,6 +353,37 @@ function markEliminated(blade, now, reason) {
   pushArenaEvent("out", `${blade.name} spun out.`, { viewerId: blade.id, reason });
 }
 
+function recordWin(winner) {
+  const existing = arena.winStats.get(winner.id) || { id: winner.id, name: winner.name, wins: 0 };
+  existing.wins += 1;
+  existing.name = winner.name;
+  arena.winStats.set(winner.id, existing);
+}
+
+function getLeaderboardTop(limit = 5) {
+  const rows = [...arena.winStats.values()].map((row) => ({
+    ...row,
+    streak: arena.round.streaks.get(row.id) || 0
+  }));
+  return rows
+    .sort((a, b) => {
+      if (b.wins !== a.wins) return b.wins - a.wins;
+      if (b.streak !== a.streak) return b.streak - a.streak;
+      return a.name.localeCompare(b.name);
+    })
+    .slice(0, limit);
+}
+
+function getQueueList(limit = 8) {
+  const list = [];
+  for (const viewerId of arena.pending.values()) {
+    const viewer = arena.viewers.get(viewerId);
+    if (viewer) list.push({ id: viewer.id, name: viewer.name });
+    if (list.length >= limit) break;
+  }
+  return list;
+}
+
 function applyCommand(viewer, command, source) {
   if (!command) return;
   if (command.type !== "spawn" && !allowViewerCommand(viewer)) return;
@@ -428,7 +464,8 @@ function handleGift(viewer, event) {
     if (arena.round.status === "running") {
       const canRevive = coins >= SAFE_GIFT_REVIVE
         && arena.round.eliminated.has(viewer.id)
-        && !arena.round.revived.has(viewer.id);
+        && !arena.round.revived.has(viewer.id)
+        && arena.round.revivesUsed < arena.round.reviveLimit;
       if (canRevive) {
         blade = createBlade(viewer);
         blade.spin = 1.4;
@@ -436,6 +473,7 @@ function handleGift(viewer, event) {
         applyImpulse(blade, (Math.random() - 0.5) * 0.04, (Math.random() - 0.5) * 0.04, 0.4, 0.2);
         arena.round.eliminated.delete(viewer.id);
         arena.round.revived.add(viewer.id);
+        arena.round.revivesUsed += 1;
         pushArenaEvent("revive", `${viewer.name} revived with ${giftName}!`, {
           viewerId: viewer.id,
           coins,
@@ -508,6 +546,8 @@ function startRound(now) {
   arena.round.minRadius = SAFE_MIN_RADIUS;
   arena.round.shrinkAnnounced = false;
   arena.round.banner = null;
+  arena.round.reviveLimit = SAFE_REVIVE_MAX_PER_ROUND;
+  arena.round.revivesUsed = 0;
   arena.round.eliminated.clear();
   arena.round.revived.clear();
   arena.radius = arena.round.baseRadius;
@@ -528,6 +568,7 @@ function finishRound(now, winner) {
     arena.round.winnerId = winner.id;
     arena.round.winnerName = winner.name;
     arena.round.winnerStreak = streak;
+    recordWin(winner);
     pushArenaEvent("round", `${winner.name} wins! Streak x${streak}.`, {
       winnerId: winner.id,
       streak
@@ -566,6 +607,7 @@ function resetRound() {
   arena.round.winnerName = null;
   arena.round.winnerStreak = 0;
   arena.round.cooldownUntil = 0;
+  arena.round.revivesUsed = 0;
   arena.round.eliminated.clear();
   arena.round.revived.clear();
   arena.radius = arena.round.baseRadius;
@@ -741,6 +783,8 @@ function packArenaState() {
   const countdownMs = arena.round.status === "countdown"
     ? Math.max(0, arena.round.countdownEndsAt - now)
     : 0;
+  const leaderboard = getLeaderboardTop(5);
+  const queue = getQueueList(8);
   return {
     ts: now,
     arena: {
@@ -754,11 +798,17 @@ function packArenaState() {
       startAt: arena.round.startAt,
       shrinkStartAt: arena.round.shrinkStartAt,
       shrinkEndAt: arena.round.shrinkEndAt,
+      cooldownUntil: arena.round.cooldownUntil,
       winnerId: arena.round.winnerId,
       winnerName: arena.round.winnerName,
       winnerStreak: arena.round.winnerStreak,
-      banner: arena.round.banner
+      banner: arena.round.banner,
+      alive: arena.blades.size,
+      reviveLimit: arena.round.reviveLimit,
+      revivesUsed: arena.round.revivesUsed
     },
+    queue,
+    leaderboard,
     stats: {
       blades: arena.blades.size,
       viewers: arena.viewers.size,
@@ -777,7 +827,8 @@ function packArenaState() {
       vy: blade.vy,
       spin: blade.spin,
       energy: blade.energy,
-      radius: blade.radius
+      radius: blade.radius,
+      shielded: blade.shieldUntil ? blade.shieldUntil > now : false
     }))
   };
 }

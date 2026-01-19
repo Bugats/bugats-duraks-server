@@ -3,6 +3,11 @@ const ctx = canvas.getContext("2d");
 
 const statusEl = document.getElementById("status");
 const statsEl = document.getElementById("stats");
+const roundStatusEl = document.getElementById("round-status");
+const roundTimersEl = document.getElementById("round-timers");
+const roundMetaEl = document.getElementById("round-meta");
+const queueEl = document.getElementById("queue");
+const leaderboardEl = document.getElementById("leaderboard");
 const eventsEl = document.getElementById("events");
 const nameInput = document.getElementById("viewer-name");
 const saveNameBtn = document.getElementById("save-name");
@@ -50,14 +55,24 @@ const socket = io("/beyblade", {
 
 let state = null;
 let arenaScale = 1;
+let baseArenaScale = 1;
+let zoomFactor = 1;
 let roundBanner = null;
 let lastBannerId = null;
 const logoCanvas = document.createElement("canvas");
+const TIER_COLORS = {
+  boost: "#00f2ea",
+  shield: "#4d79ff",
+  shock: "#ff8c42",
+  ult: "#ff0050",
+  revive: "#ffd166"
+};
 
 function resizeCanvas() {
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
-  arenaScale = Math.min(canvas.width, canvas.height) * 0.45;
+  baseArenaScale = Math.min(canvas.width, canvas.height) * 0.45;
+  arenaScale = baseArenaScale * zoomFactor;
 }
 
 function drawTikTokLogo(target, size) {
@@ -136,6 +151,8 @@ function spawnGiftEffect(event, payload) {
   const coins = Number(meta.coins || meta.value || 0);
   const repeat = Number(meta.repeat || 1);
   const tier = String(meta.tier || "").toLowerCase();
+  const tierColor = TIER_COLORS[tier];
+  if (tierColor) color = tierColor;
   let strength = clamp(1 + coins / 200 + repeat / 10, 1, 3);
   if (tier === "boost") strength = Math.max(strength, 1.4);
   if (tier === "shield") strength = Math.max(strength, 1.8);
@@ -143,7 +160,7 @@ function spawnGiftEffect(event, payload) {
   if (tier === "ult") strength = Math.max(strength, 2.8);
   if (event.type === "revive") {
     strength = Math.max(strength, 3);
-    color = "#ffd166";
+    color = TIER_COLORS.revive || "#ffd166";
   }
 
   effects.push({
@@ -366,7 +383,8 @@ function updateEvents(events) {
   eventsEl.replaceChildren();
   events.forEach((event) => {
     const div = document.createElement("div");
-    div.className = `event ${event.type || ""}`.trim();
+    const tier = event?.meta?.tier ? ` tier-${String(event.meta.tier).toLowerCase()}` : "";
+    div.className = `event ${event.type || ""}${tier}`.trim();
     div.textContent = event.message;
     eventsEl.appendChild(div);
   });
@@ -378,11 +396,84 @@ function updateStats(stats) {
   statsEl.textContent = `Blades: ${stats.blades} | Viewers: ${stats.viewers} | Coins: ${stats.coins} | Est USD: ${revenue}`;
 }
 
+function updateRoundInfo(round, payload) {
+  if (!round) return;
+  const now = payload?.ts || Date.now();
+  const status = round.status || "idle";
+  const alive = round.alive ?? payload?.stats?.blades ?? 0;
+
+  if (status === "countdown") {
+    const seconds = Math.ceil((round.countdownMs || 0) / 1000);
+    roundStatusEl.textContent = `Battle starts in ${seconds}s`;
+  } else if (status === "running") {
+    roundStatusEl.textContent = "Battle running";
+  } else if (status === "finished") {
+    const cooldown = Math.max(0, Math.ceil(((round.cooldownUntil || 0) - now) / 1000));
+    roundStatusEl.textContent = cooldown ? `Cooldown ${cooldown}s` : "Round finished";
+  } else {
+    roundStatusEl.textContent = "Waiting for players";
+  }
+
+  let timerText = "";
+  if (status === "running") {
+    if (round.shrinkStartAt && now < round.shrinkStartAt) {
+      timerText = `Shrink in ${Math.ceil((round.shrinkStartAt - now) / 1000)}s`;
+    } else if (round.shrinkEndAt && now < round.shrinkEndAt) {
+      timerText = `Shrinking... ${Math.ceil((round.shrinkEndAt - now) / 1000)}s`;
+    } else if (round.shrinkEndAt) {
+      timerText = "Shrink complete";
+    }
+  }
+  roundTimersEl.textContent = timerText;
+  roundMetaEl.textContent = `Alive: ${alive} | Revives: ${round.revivesUsed || 0}/${round.reviveLimit || 0}`;
+}
+
+function updateQueue(queue) {
+  if (!queue || queue.length === 0) {
+    queueEl.textContent = "Queue: -";
+    return;
+  }
+  const names = queue.map((q) => q.name).join(", ");
+  queueEl.textContent = `Queue: ${names}`;
+}
+
+function updateLeaderboard(rows) {
+  leaderboardEl.replaceChildren();
+  if (!rows || rows.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "entry";
+    empty.textContent = "No wins yet";
+    leaderboardEl.appendChild(empty);
+    return;
+  }
+  rows.forEach((row, index) => {
+    const item = document.createElement("div");
+    item.className = "entry";
+    item.innerHTML = `<strong>#${index + 1} ${row.name}</strong><span>W:${row.wins} | S:${row.streak}</span>`;
+    leaderboardEl.appendChild(item);
+  });
+}
+
+function computeTargetZoom(blades, radius) {
+  if (!blades || blades.length === 0) return 1;
+  let maxDist = 0;
+  blades.forEach((blade) => {
+    const dist = Math.hypot(blade.x, blade.y) + (blade.radius || 0);
+    if (dist > maxDist) maxDist = dist;
+  });
+  const norm = clamp(maxDist / Math.max(radius || 1, 0.1), 0.4, 1.1);
+  return clamp(1.15 - (norm - 0.4) * 0.45, 0.75, 1.15);
+}
+
 function renderArena(now, dt) {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   const centerX = canvas.width / 2;
   const centerY = canvas.height / 2;
-  const ringScale = arenaScale * (state?.arena?.radius || 1);
+  const radius = state?.arena?.radius || 1;
+  const targetZoom = computeTargetZoom(state?.blades || [], radius);
+  zoomFactor += (targetZoom - zoomFactor) * 0.08;
+  arenaScale = baseArenaScale * zoomFactor;
+  const ringScale = arenaScale * radius;
   const bgGradient = ctx.createRadialGradient(centerX, centerY, arenaScale * 0.2, centerX, centerY, arenaScale * 1.2);
   bgGradient.addColorStop(0, "#0f0f0f");
   bgGradient.addColorStop(0.6, "#050505");
@@ -429,6 +520,14 @@ function renderArena(now, dt) {
     ctx.arc(0, 0, r * 1.1 * pulse, 0, Math.PI * 2);
     ctx.stroke();
 
+    if (blade.shielded) {
+      ctx.strokeStyle = "rgba(77, 121, 255, 0.7)";
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.arc(0, 0, r * 1.35 * pulse, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
     const logoSize = r * 1.1;
     ctx.drawImage(logoCanvas, -logoSize / 2, -logoSize / 2, logoSize, logoSize);
 
@@ -471,6 +570,9 @@ socket.on("welcome", (payload) => {
 socket.on("state", (payload) => {
   state = payload;
   updateStats(payload.stats);
+  updateRoundInfo(payload.round, payload);
+  updateQueue(payload.queue || []);
+  updateLeaderboard(payload.leaderboard || []);
   const ts = payload?.ts || Date.now();
   updateTrails(payload?.blades || [], ts);
   detectCollisions(payload?.blades || [], ts);
