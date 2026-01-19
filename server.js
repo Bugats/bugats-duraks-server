@@ -72,6 +72,8 @@ const BEYBLADE_DAMAGE_COLLISION = Number(process.env.BEYBLADE_DAMAGE_COLLISION |
 const BEYBLADE_HIT_COOLDOWN_MS = Number(process.env.BEYBLADE_HIT_COOLDOWN_MS || 1200);
 const BEYBLADE_WALL_SPEED_THRESHOLD = Number(process.env.BEYBLADE_WALL_SPEED_THRESHOLD || 0.03);
 const BEYBLADE_COLLISION_SPEED_THRESHOLD = Number(process.env.BEYBLADE_COLLISION_SPEED_THRESHOLD || 0.028);
+const BEYBLADE_RING_OUT_BUFFER = Number(process.env.BEYBLADE_RING_OUT_BUFFER || 0.04);
+const BEYBLADE_RING_OUT_SPEED = Number(process.env.BEYBLADE_RING_OUT_SPEED || 0.035);
 const BEYBLADE_STAMINA_MAX = Number(process.env.BEYBLADE_STAMINA_MAX || 100);
 const BEYBLADE_STAMINA_REGEN_PER_SEC = Number(process.env.BEYBLADE_STAMINA_REGEN_PER_SEC || 6);
 const BEYBLADE_STAMINA_BOOST_COST = Number(process.env.BEYBLADE_STAMINA_BOOST_COST || 28);
@@ -108,6 +110,8 @@ const SAFE_DAMAGE_COLLISION = Number.isFinite(BEYBLADE_DAMAGE_COLLISION) ? BEYBL
 const SAFE_HIT_COOLDOWN_MS = Number.isFinite(BEYBLADE_HIT_COOLDOWN_MS) ? BEYBLADE_HIT_COOLDOWN_MS : 1200;
 const SAFE_WALL_SPEED_THRESHOLD = Number.isFinite(BEYBLADE_WALL_SPEED_THRESHOLD) ? BEYBLADE_WALL_SPEED_THRESHOLD : 0.03;
 const SAFE_COLLISION_SPEED_THRESHOLD = Number.isFinite(BEYBLADE_COLLISION_SPEED_THRESHOLD) ? BEYBLADE_COLLISION_SPEED_THRESHOLD : 0.028;
+const SAFE_RING_OUT_BUFFER = Number.isFinite(BEYBLADE_RING_OUT_BUFFER) ? BEYBLADE_RING_OUT_BUFFER : 0.04;
+const SAFE_RING_OUT_SPEED = Number.isFinite(BEYBLADE_RING_OUT_SPEED) ? BEYBLADE_RING_OUT_SPEED : 0.035;
 const SAFE_STAMINA_MAX = Number.isFinite(BEYBLADE_STAMINA_MAX) ? BEYBLADE_STAMINA_MAX : 100;
 const SAFE_STAMINA_REGEN_PER_SEC = Number.isFinite(BEYBLADE_STAMINA_REGEN_PER_SEC) ? BEYBLADE_STAMINA_REGEN_PER_SEC : 6;
 const SAFE_STAMINA_BOOST_COST = Number.isFinite(BEYBLADE_STAMINA_BOOST_COST) ? BEYBLADE_STAMINA_BOOST_COST : 28;
@@ -949,6 +953,12 @@ function stepArena() {
     const limit = arena.radius - blade.radius;
     const dist = Math.hypot(blade.x, blade.y);
     if (dist > limit) {
+      const speed = Math.hypot(blade.vx, blade.vy);
+      if (dist > limit + SAFE_RING_OUT_BUFFER && speed > SAFE_RING_OUT_SPEED) {
+        markEliminated(blade, now, "ringout");
+        removed.add(blade.id);
+        continue;
+      }
       const nx = blade.x / dist;
       const ny = blade.y / dist;
       blade.x = nx * limit;
@@ -962,7 +972,6 @@ function stepArena() {
       const spinLoss = shielded ? 0.02 : 0.05;
       blade.spin = clamp(blade.spin - spinLoss, 0, 2.5);
 
-      const speed = Math.hypot(blade.vx, blade.vy);
       if (speed > SAFE_WALL_SPEED_THRESHOLD) {
         const damage = speed > SAFE_WALL_SPEED_THRESHOLD * 1.6 ? SAFE_DAMAGE_WALL + 1 : SAFE_DAMAGE_WALL;
         const eliminated = applyDamage(blade, damage, now, "ringout");
@@ -1023,16 +1032,6 @@ function stepArena() {
           if (applyDamage(b, damage, now, "collision")) removed.add(b.id);
         }
       }
-    }
-  }
-
-  for (const blade of arena.blades.values()) {
-    if (removed.has(blade.id)) continue;
-    const idleTime = now - blade.lastActionAt;
-    const speed = Math.hypot(blade.vx, blade.vy);
-    if (blade.spin < 0.15 && speed < 0.002 && idleTime > 15000) {
-      removed.add(blade.id);
-      markEliminated(blade, now, "spinout");
     }
   }
 
