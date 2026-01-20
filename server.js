@@ -1275,13 +1275,14 @@ function stepArena() {
             addMomentum(a, SAFE_MOMENTUM_COLLISION_SLOW);
           }
           const comboBonus = registerComboHit(aggressor, now);
-          const damage = relSpeed > SAFE_COLLISION_SPEED_THRESHOLD * 1.7
+          const baseDamage = relSpeed > SAFE_COLLISION_SPEED_THRESHOLD * 1.7
             ? SAFE_DAMAGE_COLLISION + 1
             : SAFE_DAMAGE_COLLISION;
-          const damageA = defender === a ? damage + comboBonus : damage;
-          const damageB = defender === b ? damage + comboBonus : damage;
-          if (applyDamage(a, damageA, now, "collision")) removed.add(a.id);
-          if (applyDamage(b, damageB, now, "collision")) removed.add(b.id);
+          const speedDiff = Math.max(0, Math.abs(speedA - speedB));
+          const maxSpeed = Math.max(speedA, speedB, 0.001);
+          const speedBonus = Math.round(clamp((speedDiff / maxSpeed) * 2, 0, 2));
+          const totalDamage = baseDamage + speedBonus + comboBonus;
+          if (applyDamage(defender, totalDamage, now, "collision")) removed.add(defender.id);
         }
       }
     }
