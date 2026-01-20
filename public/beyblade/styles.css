@@ -177,19 +177,25 @@ button.ghost {
   border-left: 3px solid #ff8c42;
 }
 
-.leaderboard-title {
+.leaderboard-title,
+.kill-feed-title,
+.mvp-title {
   margin-top: 6px;
   color: #bfbfbf;
 }
 
-#leaderboard {
+#leaderboard,
+#kill-feed,
+#mvp {
   display: grid;
   gap: 4px;
   font-size: 12px;
   margin-bottom: 10px;
 }
 
-#leaderboard .entry {
+#leaderboard .entry,
+#kill-feed .entry,
+#mvp .entry {
   display: flex;
   justify-content: space-between;
   gap: 8px;
@@ -198,7 +204,9 @@ button.ghost {
   background: rgba(255, 255, 255, 0.06);
 }
 
-#leaderboard .entry strong {
+#leaderboard .entry strong,
+#kill-feed .entry strong,
+#mvp .entry strong {
   font-weight: 600;
 }
 

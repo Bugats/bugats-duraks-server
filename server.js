@@ -168,6 +168,8 @@ const arena = {
   blades: new Map(),
   viewers: new Map(),
   events: [],
+  hits: [],
+  killFeed: [],
   projectiles: [],
   totals: { coins: 0, gifts: 0, revenueUsd: 0 },
   winStats: new Map(),
@@ -190,6 +192,8 @@ const arena = {
     winnerStreak: 0,
     lastWinnerId: null,
     streaks: new Map(),
+    stats: new Map(),
+    killStreaks: new Map(),
     cooldownUntil: 0,
     reviveLimit: SAFE_REVIVE_MAX_PER_ROUND,
     revivesUsed: 0,
@@ -200,6 +204,7 @@ const arena = {
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const SHOT_RADIUS = 0.012;
+const HIT_EVENT_TTL_MS = 1200;
 const safeText = (value, max = 22) => String(value || "").replace(/[<>]/g, "").trim().slice(0, max);
 const asNumber = (value, fallback) => {
   const n = Number(value);
@@ -274,6 +279,110 @@ function pushArenaEvent(type, message, meta = {}) {
   if (arena.events.length > 20) arena.events.shift();
 }
 
+function pushHitEvent(targetId, attackerId, amount, reason, now) {
+  if (!targetId || amount <= 0) return;
+  arena.hits.push({
+    id: `hit-${now}-${Math.random().toString(36).slice(2, 6)}`,
+    ts: now,
+    targetId,
+    attackerId: attackerId || null,
+    amount,
+    reason
+  });
+  if (arena.hits.length > 40) arena.hits.shift();
+}
+
+function getRoundStatsEntry(viewerId) {
+  if (!viewerId) return null;
+  if (!arena.round.stats) arena.round.stats = new Map();
+  let entry = arena.round.stats.get(viewerId);
+  const viewer = arena.viewers.get(viewerId);
+  if (!entry) {
+    entry = {
+      id: viewerId,
+      name: viewer?.name || "Viewer",
+      hits: 0,
+      damage: 0,
+      taps: 0
+    };
+    arena.round.stats.set(viewerId, entry);
+  } else if (viewer?.name && viewer.name !== entry.name) {
+    entry.name = viewer.name;
+  }
+  return entry;
+}
+
+function recordHitStats(attackerId, damage) {
+  if (!attackerId || damage <= 0) return;
+  const entry = getRoundStatsEntry(attackerId);
+  if (!entry) return;
+  entry.hits += 1;
+  entry.damage = Number((entry.damage + damage).toFixed(1));
+}
+
+function recordTapStats(viewerId, count = 1) {
+  if (!viewerId || count <= 0) return;
+  const entry = getRoundStatsEntry(viewerId);
+  if (!entry) return;
+  entry.taps += count;
+}
+
+function recordKillStreak(killerId) {
+  if (!killerId) return 0;
+  if (!arena.round.killStreaks) arena.round.killStreaks = new Map();
+  const current = arena.round.killStreaks.get(killerId) || 0;
+  const next = current + 1;
+  arena.round.killStreaks.set(killerId, next);
+  return next;
+}
+
+function resetKillStreak(viewerId) {
+  if (!viewerId || !arena.round.killStreaks) return;
+  arena.round.killStreaks.delete(viewerId);
+}
+
+function pushKillFeedEntry(victim, killerId, reason, now) {
+  if (!victim) return;
+  const killer = killerId && killerId !== victim.id ? arena.viewers.get(killerId) : null;
+  const streak = killer ? recordKillStreak(killer.id) : 0;
+  resetKillStreak(victim.id);
+  arena.killFeed.push({
+    id: `kf-${now}-${Math.random().toString(36).slice(2, 6)}`,
+    ts: now,
+    victimId: victim.id,
+    victimName: victim.name,
+    killerId: killer?.id || null,
+    killerName: killer?.name || null,
+    reason,
+    streak
+  });
+  if (arena.killFeed.length > 12) arena.killFeed.shift();
+}
+
+function buildMvpStats() {
+  const rows = arena.round.stats ? [...arena.round.stats.values()] : [];
+  const pickTop = (key) => {
+    const filtered = rows.filter((row) => (row[key] || 0) > 0);
+    if (filtered.length === 0) return null;
+    filtered.sort((a, b) => b[key] - a[key]);
+    const top = filtered[0];
+    const value = key === "damage" ? Number(top[key].toFixed(1)) : top[key];
+    return { id: top.id, name: top.name, value };
+  };
+  return {
+    hits: pickTop("hits"),
+    damage: pickTop("damage"),
+    taps: pickTop("taps")
+  };
+}
+
+function resetRoundTracking() {
+  if (arena.round.stats) arena.round.stats.clear();
+  if (arena.round.killStreaks) arena.round.killStreaks.clear();
+  arena.killFeed = [];
+  arena.hits = [];
+}
+
 function setRoundPhase(phase, message) {
   if (arena.round.phase === phase) return;
   arena.round.phase = phase;
@@ -299,6 +408,9 @@ function getOrCreateViewer(viewerId, viewerName) {
     arena.viewers.set(viewerId, viewer);
   } else if (name && name !== viewer.name) {
     viewer.name = name;
+  }
+  if (arena.round.stats && arena.round.stats.has(viewer.id)) {
+    arena.round.stats.get(viewer.id).name = viewer.name;
   }
   if (!viewer.color) viewer.color = colorForViewer(viewerId);
   viewer.lastSeen = Date.now();
@@ -337,6 +449,8 @@ function createBlade(viewer) {
     hp: SAFE_HP_MAX,
     hpMax: SAFE_HP_MAX,
     lastHitAt: 0,
+    lastHitBy: null,
+    lastHitByAt: 0,
     lastShotAt: 0,
     comboHits: 0,
     comboLastAt: 0,
@@ -655,7 +769,7 @@ function applyShockwave(origin, power) {
   }
 }
 
-function markEliminated(blade, now, reason) {
+function markEliminated(blade, now, reason, attackerId = null) {
   if (arena.round.status === "running") {
     arena.round.eliminated.set(blade.id, {
       id: blade.id,
@@ -671,6 +785,7 @@ function markEliminated(blade, now, reason) {
       ? "stalled out"
       : "spun out";
   pushArenaEvent("out", `${blade.name} ${label}.`, { viewerId: blade.id, reason });
+  pushKillFeedEntry(blade, attackerId, reason, now);
 }
 
 function applyDamage(blade, amount, now, reason, options = {}) {
@@ -678,7 +793,8 @@ function applyDamage(blade, amount, now, reason, options = {}) {
   const {
     allowFractional = false,
     cooldownMs = SAFE_HIT_COOLDOWN_MS,
-    cooldownKey = "lastHitAt"
+    cooldownKey = "lastHitAt",
+    attackerId = null
   } = options;
   const lastHitAt = blade[cooldownKey] || 0;
   if (cooldownMs != null && now - lastHitAt < cooldownMs) return false;
@@ -694,10 +810,18 @@ function applyDamage(blade, amount, now, reason, options = {}) {
   const scaled = amount * multiplier;
   const finalDamage = allowFractional ? Math.max(0, Number(scaled.toFixed(2))) : (scaled < 0.6 ? 0 : Math.round(scaled));
   if (finalDamage <= 0) return false;
+  if (attackerId && attackerId !== blade.id) {
+    recordHitStats(attackerId, finalDamage);
+    blade.lastHitBy = attackerId;
+    blade.lastHitByAt = now;
+    if (reason === "collision" || reason === "shot") {
+      pushHitEvent(blade.id, attackerId, finalDamage, reason, now);
+    }
+  }
   blade.hp = Math.max(0, (blade.hp ?? SAFE_HP_MAX) - finalDamage);
   blade[cooldownKey] = now;
   if (blade.hp <= 0) {
-    markEliminated(blade, now, reason);
+    markEliminated(blade, now, reason, attackerId);
     return true;
   }
   return false;
@@ -969,6 +1093,7 @@ function startRoundCountdown(now) {
 function startRound(now) {
   arena.round.status = "running";
   setRoundPhase("start");
+  resetRoundTracking();
   arena.round.startAt = now;
   arena.round.countdownEndsAt = 0;
   arena.round.shrinkStartAt = now + SAFE_ROUND_SHRINK_START_MS;
@@ -1049,6 +1174,7 @@ function resetRound() {
   arena.radius = arena.round.baseRadius;
   arena.pending.clear();
   arena.projectiles = [];
+  resetRoundTracking();
 }
 
 function updateRoundState(now) {
@@ -1125,6 +1251,8 @@ function handleBeybladeEvent(event, source = "tiktok") {
   }
 
   if (event.type === "like") {
+    const likeCount = Math.max(1, asNumber(event.count || event.likes || event.likeCount, 1));
+    recordTapStats(viewer.id, likeCount);
     applyCommand(viewer, { type: "shoot" }, source);
     return;
   }
@@ -1143,6 +1271,10 @@ function handleBeybladeEvent(event, source = "tiktok") {
 function stepArena() {
   const now = Date.now();
   updateRoundState(now);
+  if (arena.hits.length > 0) {
+    const cutoff = now - HIT_EVENT_TTL_MS;
+    arena.hits = arena.hits.filter((hit) => hit.ts >= cutoff);
+  }
   const blades = [...arena.blades.values()];
   const removed = new Set();
   for (const blade of blades) {
@@ -1230,7 +1362,8 @@ function stepArena() {
           if (applyDamage(blade, SAFE_SHOT_DAMAGE, now, "shot", {
             allowFractional: true,
             cooldownMs: 0,
-            cooldownKey: "lastShotAt"
+            cooldownKey: "lastShotAt",
+            attackerId: shot.ownerId
           })) {
             removed.add(blade.id);
           }
@@ -1298,7 +1431,9 @@ function stepArena() {
           const maxSpeed = Math.max(speedA, speedB, 0.001);
           const speedBonus = Math.round(clamp((speedDiff / maxSpeed) * 2, 0, 2));
           const totalDamage = baseDamage + speedBonus + comboBonus;
-          if (applyDamage(defender, totalDamage, now, "collision")) removed.add(defender.id);
+          if (applyDamage(defender, totalDamage, now, "collision", { attackerId: aggressor.id })) {
+            removed.add(defender.id);
+          }
         }
       }
     }
@@ -1324,6 +1459,7 @@ function packArenaState() {
     : 0;
   const leaderboard = getLeaderboardTop(5);
   const queue = getQueueList(8);
+  const mvp = buildMvpStats();
   return {
     ts: now,
     arena: {
@@ -1356,6 +1492,9 @@ function packArenaState() {
       gifts: arena.totals.gifts,
       revenueUsd: arena.totals.revenueUsd
     },
+    mvp,
+    killFeed: arena.killFeed.slice(-6),
+    hits: arena.hits.slice(-20),
     projectiles: arena.projectiles.map((shot) => ({
       id: shot.id,
       x: shot.x,

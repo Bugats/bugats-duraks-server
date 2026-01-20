@@ -8,6 +8,8 @@ const roundTimersEl = document.getElementById("round-timers");
 const roundMetaEl = document.getElementById("round-meta");
 const queueEl = document.getElementById("queue");
 const leaderboardEl = document.getElementById("leaderboard");
+const killFeedEl = document.getElementById("kill-feed");
+const mvpEl = document.getElementById("mvp");
 const toggleLogBtn = document.getElementById("toggle-log");
 const eventsEl = document.getElementById("events");
 const nameInput = document.getElementById("viewer-name");
@@ -24,6 +26,8 @@ const trailMap = new Map();
 const sparkBursts = [];
 const lastCollisionAt = new Map();
 let seenEventIds = new Set();
+let seenHitIds = new Set();
+const damagePopups = [];
 let lastFrameTs = Date.now();
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
@@ -242,6 +246,31 @@ function handleIncomingEvents(events, payload) {
   updateEvents(events || []);
 }
 
+function handleHitEvents(hits, payload) {
+  const nextSeen = new Set();
+  const blades = payload?.blades || [];
+  (hits || []).forEach((hit) => {
+    nextSeen.add(hit.id);
+    if (seenHitIds.has(hit.id)) return;
+    const target = blades.find((blade) => blade.id === hit.targetId);
+    if (!target) return;
+    const amount = Number(hit.amount || 0);
+    if (!amount) return;
+    const color = hit.reason === "shot" ? "#ffd166" : "#ff4d4d";
+    damagePopups.push({
+      id: hit.id,
+      x: target.x,
+      y: target.y,
+      amount,
+      color,
+      startTs: payload?.ts || Date.now(),
+      duration: 900
+    });
+  });
+  seenHitIds = nextSeen;
+  if (damagePopups.length > 60) damagePopups.splice(0, damagePopups.length - 60);
+}
+
 function renderEffects(now, perfMode = false) {
   const centerX = canvas.width / 2;
   const centerY = canvas.height / 2;
@@ -288,6 +317,31 @@ function renderEffects(now, perfMode = false) {
       ctx.stroke();
     });
 
+    ctx.restore();
+  }
+}
+
+function renderDamagePopups(now) {
+  const centerX = canvas.width / 2;
+  const centerY = canvas.height / 2;
+  for (let i = damagePopups.length - 1; i >= 0; i -= 1) {
+    const popup = damagePopups[i];
+    const t = (now - popup.startTs) / popup.duration;
+    if (t >= 1) {
+      damagePopups.splice(i, 1);
+      continue;
+    }
+    const rise = 18 * t;
+    const x = centerX + popup.x * arenaScale;
+    const y = centerY + popup.y * arenaScale - rise;
+    ctx.save();
+    ctx.globalAlpha = 1 - t;
+    ctx.fillStyle = popup.color || "#ff4d4d";
+    ctx.font = "bold 14px Segoe UI, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    const label = popup.amount % 1 === 0 ? String(popup.amount) : popup.amount.toFixed(1);
+    ctx.fillText(`-${label}`, x, y);
     ctx.restore();
   }
 }
@@ -702,6 +756,56 @@ function updateLeaderboard(rows) {
   });
 }
 
+function updateKillFeed(feed) {
+  if (!killFeedEl) return;
+  killFeedEl.replaceChildren();
+  if (!feed || feed.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "entry";
+    empty.textContent = "No eliminations yet";
+    killFeedEl.appendChild(empty);
+    return;
+  }
+  const reasonLabel = {
+    ringout: "ringed out",
+    idle: "stalled out",
+    shot: "shot out",
+    collision: "spun out"
+  };
+  feed.forEach((entry) => {
+    const item = document.createElement("div");
+    item.className = "entry";
+    if (entry.killerName) {
+      const streak = entry.streak >= 3 ? `<span class="tag">🔥 ${entry.streak}x</span>` : "";
+      item.innerHTML = `<strong>${entry.killerName}</strong><span>→ ${entry.victimName} ${streak}</span>`;
+    } else {
+      const label = reasonLabel[entry.reason] || "out";
+      item.innerHTML = `<strong>${entry.victimName}</strong><span>${label}</span>`;
+    }
+    killFeedEl.appendChild(item);
+  });
+}
+
+function updateMvp(mvp) {
+  if (!mvpEl) return;
+  mvpEl.replaceChildren();
+  const rows = [
+    { label: "Most hits", data: mvp?.hits },
+    { label: "Most damage", data: mvp?.damage },
+    { label: "Most taps", data: mvp?.taps }
+  ];
+  rows.forEach((row) => {
+    const item = document.createElement("div");
+    item.className = "entry";
+    if (row.data) {
+      item.innerHTML = `<strong>${row.label}</strong><span>${row.data.name} (${row.data.value})</span>`;
+    } else {
+      item.innerHTML = `<strong>${row.label}</strong><span>-</span>`;
+    }
+    mvpEl.appendChild(item);
+  });
+}
+
 function computeTargetZoom(blades, radius) {
   if (!blades || blades.length === 0) return 1;
   let maxDist = 0;
@@ -841,6 +945,7 @@ function renderArena(now, dt) {
 
   renderSparks(dt, perfMode);
   renderEffects(now, perfMode);
+  renderDamagePopups(now);
   renderRoundBanner(now);
 }
 
@@ -873,6 +978,8 @@ socket.on("state", (payload) => {
   updateRoundInfo(payload.round, payload);
   updateQueue(payload.queue || []);
   updateLeaderboard(payload.leaderboard || []);
+  updateKillFeed(payload.killFeed || []);
+  updateMvp(payload.mvp || null);
   const ts = payload?.ts || Date.now();
   updateTrails(payload?.blades || [], ts);
   detectCollisions(payload?.blades || [], ts);
@@ -882,6 +989,7 @@ socket.on("state", (payload) => {
     roundBanner = { ...banner };
   }
   handleIncomingEvents(payload.events || [], payload);
+  handleHitEvents(payload.hits || [], payload);
 });
 
 saveNameBtn.addEventListener("click", () => {
