@@ -1,0 +1,224 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: #050505;
+  color: #f3f3f3;
+  font-family: "Segoe UI", system-ui, sans-serif;
+}
+
+#app {
+  position: relative;
+  height: 100%;
+  width: 100%;
+}
+
+#arena {
+  display: block;
+  width: 100vw;
+  height: 100vh;
+}
+
+#hud {
+  position: fixed;
+  top: 16px;
+  left: 16px;
+  max-width: 420px;
+  padding: 16px;
+  border-radius: 12px;
+  background: rgba(12, 12, 12, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(6px);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.row.header {
+  justify-content: space-between;
+}
+
+.title {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.status {
+  font-size: 12px;
+  color: #9ad6ff;
+}
+
+.row.small {
+  font-size: 12px;
+  color: #d0d0d0;
+}
+
+.commands {
+  line-height: 1.4;
+}
+
+input,
+button {
+  font-size: 12px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(30, 30, 30, 0.9);
+  color: #f3f3f3;
+}
+
+input {
+  flex: 1;
+  min-width: 140px;
+}
+
+button {
+  cursor: pointer;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+button:hover {
+  border-color: rgba(0, 242, 234, 0.8);
+}
+
+button.ghost {
+  font-size: 11px;
+  padding: 4px 8px;
+  background: rgba(0, 0, 0, 0.35);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+#events.hidden {
+  display: none;
+}
+
+#events {
+  margin-top: 10px;
+  max-height: 160px;
+  overflow: hidden;
+  font-size: 12px;
+  display: grid;
+  gap: 4px;
+}
+
+#events .event {
+  padding: 4px 6px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+#events .event.spawn {
+  border-left: 3px solid #00f2ea;
+}
+
+#events .event.boost {
+  border-left: 3px solid #ff0050;
+}
+
+#events .event.gift {
+  border-left: 3px solid #ffd166;
+}
+
+#events .event.shield {
+  border-left: 3px solid #4d79ff;
+}
+
+#events .event.class {
+  border-left: 3px solid #9ad6ff;
+}
+
+#events .event.combo {
+  border-left: 3px solid #2f9e44;
+}
+
+#events .event.heal {
+  border-left: 3px solid #34c759;
+}
+
+#events .event.tier-boost {
+  border-left-color: #00f2ea;
+}
+
+#events .event.tier-shield {
+  border-left-color: #4d79ff;
+}
+
+#events .event.tier-shock {
+  border-left-color: #ff8c42;
+}
+
+#events .event.tier-ult {
+  border-left-color: #ff0050;
+}
+
+#events .event.revive {
+  border-left: 3px solid #00f2ea;
+}
+
+#events .event.round {
+  border-left: 3px solid #6a4c93;
+}
+
+#events .event.queue {
+  border-left: 3px solid #4d79ff;
+}
+
+#events .event.out {
+  border-left: 3px solid #ff8c42;
+}
+
+.leaderboard-title,
+.kill-feed-title,
+.mvp-title {
+  margin-top: 6px;
+  color: #bfbfbf;
+}
+
+#leaderboard,
+#kill-feed,
+#mvp {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  margin-bottom: 10px;
+}
+
+#leaderboard .entry,
+#kill-feed .entry,
+#mvp .entry {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+#leaderboard .entry strong,
+#kill-feed .entry strong,
+#mvp .entry strong {
+  font-weight: 600;
+}
+
+#queue {
+  color: #b0b0b0;
+  line-height: 1.4;
+}
+
+.tag {
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(0, 242, 234, 0.12);
+  font-size: 10px;
+  color: #9ad6ff;
+}

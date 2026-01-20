@@ -7,34 +7,1572 @@ import express from "express";
 import { createServer } from "http";
 import { Server } from "socket.io";
 import cors from "cors";
+import path from "path";
+import { fileURLToPath } from "url";
 
-// ---- CORS tikai thezone.lv
-const ORIGIN = "https://thezone.lv";
+// ---- CORS tikai thezone.lv + beyblade.thezone.lv
+const ORIGINS = ["https://thezone.lv", "https://beyblade.thezone.lv"];
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 app.set("trust proxy", 1);
+app.use(express.json({ limit: "1mb" }));
 app.use(cors({
-  origin: ORIGIN,
+  origin: ORIGINS,
   methods: ["GET", "POST", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
   credentials: false,
 }));
 app.options("*", cors({
-  origin: ORIGIN,
+  origin: ORIGINS,
   methods: ["GET", "POST", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
   credentials: false,
 }));
+app.use("/beyblade", express.static(path.join(__dirname, "public/beyblade")));
 
 app.get("/health", (_, res) => res.json({ ok: true }));
+app.get("/", (req, res) => {
+  const host = String(req.headers.host || "").toLowerCase();
+  if (host.includes("beyblade.")) return res.redirect("/beyblade");
+  return res.json({ ok: true });
+});
 
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   // Socket.IO CORS
-  cors: { origin: ORIGIN, methods: ["GET", "POST"] },
+  cors: { origin: ORIGINS, methods: ["GET", "POST"] },
   serveClient: true,   // lai var ielādēt /socket.io/socket.io.js no šī servera
   path: "/socket.io",
 });
+
+/* ===== Beyblade Arena (TikTok chat-controlled) ===== */
+const BEYBLADE_INGEST_SECRET = process.env.BEYBLADE_INGEST_SECRET || "";
+const BEYBLADE_MAX_BLADES = Number(process.env.BEYBLADE_MAX_BLADES || 7);
+const BEYBLADE_TICK_MS = Number(process.env.BEYBLADE_TICK_MS || 50);
+const BEYBLADE_COMMAND_RATE_MS = Number(process.env.BEYBLADE_COMMAND_RATE_MS || 350);
+const BEYBLADE_INGEST_COMMAND_RATE_MS = Number(process.env.BEYBLADE_INGEST_COMMAND_RATE_MS || 200);
+const BEYBLADE_INGEST_IMPULSE_MULT = Number(process.env.BEYBLADE_INGEST_IMPULSE_MULT || 1.3);
+const BEYBLADE_COIN_TO_USD = Number(process.env.BEYBLADE_COIN_TO_USD || 0.005);
+const BEYBLADE_ROUND_COUNTDOWN_MS = Number(process.env.BEYBLADE_ROUND_COUNTDOWN_MS || 5000);
+const BEYBLADE_ROUND_SHRINK_START_MS = Number(process.env.BEYBLADE_ROUND_SHRINK_START_MS || 120000);
+const BEYBLADE_ROUND_SHRINK_END_MS = Number(process.env.BEYBLADE_ROUND_SHRINK_END_MS || 240000);
+const BEYBLADE_ROUND_COOLDOWN_MS = Number(process.env.BEYBLADE_ROUND_COOLDOWN_MS || 8000);
+const BEYBLADE_MIN_PLAYERS = Number(process.env.BEYBLADE_MIN_PLAYERS || 2);
+const BEYBLADE_MIN_RADIUS = Number(process.env.BEYBLADE_MIN_RADIUS || 0.55);
+const BEYBLADE_GIFT_TIER_BOOST = Number(process.env.BEYBLADE_GIFT_TIER_BOOST || 10);
+const BEYBLADE_GIFT_TIER_SHIELD = Number(process.env.BEYBLADE_GIFT_TIER_SHIELD || 50);
+const BEYBLADE_GIFT_TIER_SHOCK = Number(process.env.BEYBLADE_GIFT_TIER_SHOCK || 150);
+const BEYBLADE_GIFT_TIER_ULT = Number(process.env.BEYBLADE_GIFT_TIER_ULT || 300);
+const BEYBLADE_GIFT_REVIVE = Number(process.env.BEYBLADE_GIFT_REVIVE || 200);
+const BEYBLADE_REVIVE_MAX_PER_ROUND = Number(process.env.BEYBLADE_REVIVE_MAX_PER_ROUND || 2);
+const BEYBLADE_HP_MAX = Number(process.env.BEYBLADE_HP_MAX || 100);
+const BEYBLADE_DAMAGE_WALL = Number(process.env.BEYBLADE_DAMAGE_WALL || 1);
+const BEYBLADE_DAMAGE_COLLISION = Number(process.env.BEYBLADE_DAMAGE_COLLISION || 1);
+const BEYBLADE_HIT_COOLDOWN_MS = Number(process.env.BEYBLADE_HIT_COOLDOWN_MS || 1200);
+const BEYBLADE_WALL_SPEED_THRESHOLD = Number(process.env.BEYBLADE_WALL_SPEED_THRESHOLD || 0.03);
+const BEYBLADE_COLLISION_SPEED_THRESHOLD = Number(process.env.BEYBLADE_COLLISION_SPEED_THRESHOLD || 0.028);
+const BEYBLADE_RING_OUT_BUFFER = Number(process.env.BEYBLADE_RING_OUT_BUFFER || 0.04);
+const BEYBLADE_RING_OUT_SPEED = Number(process.env.BEYBLADE_RING_OUT_SPEED || 0.035);
+const BEYBLADE_IDLE_DAMAGE_DELAY_MS = Number(process.env.BEYBLADE_IDLE_DAMAGE_DELAY_MS || 60000);
+const BEYBLADE_IDLE_DAMAGE_INTERVAL_MS = Number(process.env.BEYBLADE_IDLE_DAMAGE_INTERVAL_MS || 2000);
+const BEYBLADE_IDLE_SPEED_THRESHOLD = Number(process.env.BEYBLADE_IDLE_SPEED_THRESHOLD || 0.004);
+const BEYBLADE_IDLE_DAMAGE = Number(process.env.BEYBLADE_IDLE_DAMAGE || 1);
+const BEYBLADE_SHOT_SPEED = Number(process.env.BEYBLADE_SHOT_SPEED || 0.012);
+const BEYBLADE_SHOT_RANGE = Number(process.env.BEYBLADE_SHOT_RANGE || 0.45);
+const BEYBLADE_SHOT_DAMAGE = Number(process.env.BEYBLADE_SHOT_DAMAGE || 3);
+const BEYBLADE_SHOT_COUNT = Number(process.env.BEYBLADE_SHOT_COUNT || 3);
+const BEYBLADE_SHOT_SPREAD_DEG = Number(process.env.BEYBLADE_SHOT_SPREAD_DEG || 8);
+const BEYBLADE_SHOT_COOLDOWN_MS = Number(process.env.BEYBLADE_SHOT_COOLDOWN_MS || 300);
+const BEYBLADE_ROSE_HEAL = Number(process.env.BEYBLADE_ROSE_HEAL || 3);
+const BEYBLADE_COMBO_WINDOW_MS = Number(process.env.BEYBLADE_COMBO_WINDOW_MS || 2000);
+const BEYBLADE_COMBO_MOMENTUM_BONUS = Number(process.env.BEYBLADE_COMBO_MOMENTUM_BONUS || 10);
+const BEYBLADE_COMBO_DAMAGE_BONUS = Number(process.env.BEYBLADE_COMBO_DAMAGE_BONUS || 1);
+const BEYBLADE_STAMINA_MAX = Number(process.env.BEYBLADE_STAMINA_MAX || 100);
+const BEYBLADE_STAMINA_REGEN_PER_SEC = Number(process.env.BEYBLADE_STAMINA_REGEN_PER_SEC || 6);
+const BEYBLADE_STAMINA_BOOST_COST = Number(process.env.BEYBLADE_STAMINA_BOOST_COST || 28);
+const BEYBLADE_STAMINA_DASH_COST = Number(process.env.BEYBLADE_STAMINA_DASH_COST || 22);
+const BEYBLADE_STAMINA_SHIELD_COST = Number(process.env.BEYBLADE_STAMINA_SHIELD_COST || 30);
+const BEYBLADE_SHIELD_DURATION_MS = Number(process.env.BEYBLADE_SHIELD_DURATION_MS || 2500);
+const BEYBLADE_SHIELD_SLOW_MULT = Number(process.env.BEYBLADE_SHIELD_SLOW_MULT || 0.7);
+const BEYBLADE_MOMENTUM_DECAY_PER_SEC = Number(process.env.BEYBLADE_MOMENTUM_DECAY_PER_SEC || 8);
+const BEYBLADE_MOMENTUM_BOOST_GAIN = Number(process.env.BEYBLADE_MOMENTUM_BOOST_GAIN || 14);
+const BEYBLADE_MOMENTUM_DASH_GAIN = Number(process.env.BEYBLADE_MOMENTUM_DASH_GAIN || 12);
+const BEYBLADE_MOMENTUM_SHIELD_GAIN = Number(process.env.BEYBLADE_MOMENTUM_SHIELD_GAIN || 8);
+const BEYBLADE_MOMENTUM_COLLISION_FAST = Number(process.env.BEYBLADE_MOMENTUM_COLLISION_FAST || 10);
+const BEYBLADE_MOMENTUM_COLLISION_SLOW = Number(process.env.BEYBLADE_MOMENTUM_COLLISION_SLOW || 6);
+const BEYBLADE_COLORS = ["#0f0f0f", "#1a1a1a", "#00f2ea", "#ff0050", "#ffffff", "#fbb1d5", "#ffd166", "#6a4c93", "#2f9e44"];
+const SAFE_MAX_BLADES = Number.isFinite(BEYBLADE_MAX_BLADES) ? BEYBLADE_MAX_BLADES : 7;
+const SAFE_TICK_MS = Number.isFinite(BEYBLADE_TICK_MS) ? BEYBLADE_TICK_MS : 50;
+const SAFE_COMMAND_RATE_MS = Number.isFinite(BEYBLADE_COMMAND_RATE_MS) ? BEYBLADE_COMMAND_RATE_MS : 350;
+const SAFE_INGEST_COMMAND_RATE_MS = Number.isFinite(BEYBLADE_INGEST_COMMAND_RATE_MS) ? BEYBLADE_INGEST_COMMAND_RATE_MS : 200;
+const SAFE_INGEST_IMPULSE_MULT = Number.isFinite(BEYBLADE_INGEST_IMPULSE_MULT) ? BEYBLADE_INGEST_IMPULSE_MULT : 1.3;
+const SAFE_COIN_TO_USD = Number.isFinite(BEYBLADE_COIN_TO_USD) ? BEYBLADE_COIN_TO_USD : 0.005;
+const SAFE_ROUND_COUNTDOWN_MS = Number.isFinite(BEYBLADE_ROUND_COUNTDOWN_MS) ? BEYBLADE_ROUND_COUNTDOWN_MS : 5000;
+const SAFE_ROUND_SHRINK_START_MS = Number.isFinite(BEYBLADE_ROUND_SHRINK_START_MS) ? BEYBLADE_ROUND_SHRINK_START_MS : 120000;
+const SAFE_ROUND_SHRINK_END_MS = Number.isFinite(BEYBLADE_ROUND_SHRINK_END_MS) ? BEYBLADE_ROUND_SHRINK_END_MS : 240000;
+const SAFE_ROUND_COOLDOWN_MS = Number.isFinite(BEYBLADE_ROUND_COOLDOWN_MS) ? BEYBLADE_ROUND_COOLDOWN_MS : 8000;
+const SAFE_MIN_PLAYERS = Number.isFinite(BEYBLADE_MIN_PLAYERS) ? BEYBLADE_MIN_PLAYERS : 2;
+const SAFE_MIN_RADIUS = Number.isFinite(BEYBLADE_MIN_RADIUS) ? BEYBLADE_MIN_RADIUS : 0.55;
+const SAFE_GIFT_TIER_BOOST = Number.isFinite(BEYBLADE_GIFT_TIER_BOOST) ? BEYBLADE_GIFT_TIER_BOOST : 10;
+const SAFE_GIFT_TIER_SHIELD = Number.isFinite(BEYBLADE_GIFT_TIER_SHIELD) ? BEYBLADE_GIFT_TIER_SHIELD : 50;
+const SAFE_GIFT_TIER_SHOCK = Number.isFinite(BEYBLADE_GIFT_TIER_SHOCK) ? BEYBLADE_GIFT_TIER_SHOCK : 150;
+const SAFE_GIFT_TIER_ULT = Number.isFinite(BEYBLADE_GIFT_TIER_ULT) ? BEYBLADE_GIFT_TIER_ULT : 300;
+const SAFE_GIFT_REVIVE = Number.isFinite(BEYBLADE_GIFT_REVIVE) ? BEYBLADE_GIFT_REVIVE : 200;
+const SAFE_REVIVE_MAX_PER_ROUND = Number.isFinite(BEYBLADE_REVIVE_MAX_PER_ROUND) ? BEYBLADE_REVIVE_MAX_PER_ROUND : 2;
+const SAFE_HP_MAX = Number.isFinite(BEYBLADE_HP_MAX) ? BEYBLADE_HP_MAX : 100;
+const SAFE_DAMAGE_WALL = Number.isFinite(BEYBLADE_DAMAGE_WALL) ? BEYBLADE_DAMAGE_WALL : 1;
+const SAFE_DAMAGE_COLLISION = Number.isFinite(BEYBLADE_DAMAGE_COLLISION) ? BEYBLADE_DAMAGE_COLLISION : 1;
+const SAFE_HIT_COOLDOWN_MS = Number.isFinite(BEYBLADE_HIT_COOLDOWN_MS) ? BEYBLADE_HIT_COOLDOWN_MS : 1200;
+const SAFE_WALL_SPEED_THRESHOLD = Number.isFinite(BEYBLADE_WALL_SPEED_THRESHOLD) ? BEYBLADE_WALL_SPEED_THRESHOLD : 0.03;
+const SAFE_COLLISION_SPEED_THRESHOLD = Number.isFinite(BEYBLADE_COLLISION_SPEED_THRESHOLD) ? BEYBLADE_COLLISION_SPEED_THRESHOLD : 0.028;
+const SAFE_RING_OUT_BUFFER = Number.isFinite(BEYBLADE_RING_OUT_BUFFER) ? BEYBLADE_RING_OUT_BUFFER : 0.04;
+const SAFE_RING_OUT_SPEED = Number.isFinite(BEYBLADE_RING_OUT_SPEED) ? BEYBLADE_RING_OUT_SPEED : 0.035;
+const SAFE_IDLE_DAMAGE_DELAY_MS = Number.isFinite(BEYBLADE_IDLE_DAMAGE_DELAY_MS) ? BEYBLADE_IDLE_DAMAGE_DELAY_MS : 60000;
+const SAFE_IDLE_DAMAGE_INTERVAL_MS = Number.isFinite(BEYBLADE_IDLE_DAMAGE_INTERVAL_MS) ? BEYBLADE_IDLE_DAMAGE_INTERVAL_MS : 2000;
+const SAFE_IDLE_SPEED_THRESHOLD = Number.isFinite(BEYBLADE_IDLE_SPEED_THRESHOLD) ? BEYBLADE_IDLE_SPEED_THRESHOLD : 0.004;
+const SAFE_IDLE_DAMAGE = Number.isFinite(BEYBLADE_IDLE_DAMAGE) ? BEYBLADE_IDLE_DAMAGE : 1;
+const SAFE_SHOT_SPEED = Number.isFinite(BEYBLADE_SHOT_SPEED) ? BEYBLADE_SHOT_SPEED : 0.012;
+const SAFE_SHOT_RANGE = Number.isFinite(BEYBLADE_SHOT_RANGE) ? BEYBLADE_SHOT_RANGE : 0.45;
+const SAFE_SHOT_DAMAGE = Number.isFinite(BEYBLADE_SHOT_DAMAGE) ? BEYBLADE_SHOT_DAMAGE : 3;
+const SAFE_SHOT_COUNT = Number.isFinite(BEYBLADE_SHOT_COUNT) ? BEYBLADE_SHOT_COUNT : 3;
+const SAFE_SHOT_SPREAD_DEG = Number.isFinite(BEYBLADE_SHOT_SPREAD_DEG) ? BEYBLADE_SHOT_SPREAD_DEG : 8;
+const SAFE_SHOT_COOLDOWN_MS = Number.isFinite(BEYBLADE_SHOT_COOLDOWN_MS) ? BEYBLADE_SHOT_COOLDOWN_MS : 300;
+const SAFE_ROSE_HEAL = Number.isFinite(BEYBLADE_ROSE_HEAL) ? BEYBLADE_ROSE_HEAL : 3;
+const SAFE_COMBO_WINDOW_MS = Number.isFinite(BEYBLADE_COMBO_WINDOW_MS) ? BEYBLADE_COMBO_WINDOW_MS : 2000;
+const SAFE_COMBO_MOMENTUM_BONUS = Number.isFinite(BEYBLADE_COMBO_MOMENTUM_BONUS) ? BEYBLADE_COMBO_MOMENTUM_BONUS : 10;
+const SAFE_COMBO_DAMAGE_BONUS = Number.isFinite(BEYBLADE_COMBO_DAMAGE_BONUS) ? BEYBLADE_COMBO_DAMAGE_BONUS : 1;
+const SAFE_STAMINA_MAX = Number.isFinite(BEYBLADE_STAMINA_MAX) ? BEYBLADE_STAMINA_MAX : 100;
+const SAFE_STAMINA_REGEN_PER_SEC = Number.isFinite(BEYBLADE_STAMINA_REGEN_PER_SEC) ? BEYBLADE_STAMINA_REGEN_PER_SEC : 6;
+const SAFE_STAMINA_BOOST_COST = Number.isFinite(BEYBLADE_STAMINA_BOOST_COST) ? BEYBLADE_STAMINA_BOOST_COST : 28;
+const SAFE_STAMINA_DASH_COST = Number.isFinite(BEYBLADE_STAMINA_DASH_COST) ? BEYBLADE_STAMINA_DASH_COST : 22;
+const SAFE_STAMINA_SHIELD_COST = Number.isFinite(BEYBLADE_STAMINA_SHIELD_COST) ? BEYBLADE_STAMINA_SHIELD_COST : 30;
+const SAFE_SHIELD_DURATION_MS = Number.isFinite(BEYBLADE_SHIELD_DURATION_MS) ? BEYBLADE_SHIELD_DURATION_MS : 2500;
+const SAFE_SHIELD_SLOW_MULT = Number.isFinite(BEYBLADE_SHIELD_SLOW_MULT) ? BEYBLADE_SHIELD_SLOW_MULT : 0.7;
+const SAFE_MOMENTUM_DECAY_PER_SEC = Number.isFinite(BEYBLADE_MOMENTUM_DECAY_PER_SEC) ? BEYBLADE_MOMENTUM_DECAY_PER_SEC : 8;
+const SAFE_MOMENTUM_BOOST_GAIN = Number.isFinite(BEYBLADE_MOMENTUM_BOOST_GAIN) ? BEYBLADE_MOMENTUM_BOOST_GAIN : 14;
+const SAFE_MOMENTUM_DASH_GAIN = Number.isFinite(BEYBLADE_MOMENTUM_DASH_GAIN) ? BEYBLADE_MOMENTUM_DASH_GAIN : 12;
+const SAFE_MOMENTUM_SHIELD_GAIN = Number.isFinite(BEYBLADE_MOMENTUM_SHIELD_GAIN) ? BEYBLADE_MOMENTUM_SHIELD_GAIN : 8;
+const SAFE_MOMENTUM_COLLISION_FAST = Number.isFinite(BEYBLADE_MOMENTUM_COLLISION_FAST) ? BEYBLADE_MOMENTUM_COLLISION_FAST : 10;
+const SAFE_MOMENTUM_COLLISION_SLOW = Number.isFinite(BEYBLADE_MOMENTUM_COLLISION_SLOW) ? BEYBLADE_MOMENTUM_COLLISION_SLOW : 6;
+
+const beybladeIo = io.of("/beyblade");
+const arena = {
+  radius: 1,
+  friction: 0.985,
+  bounce: 0.9,
+  spinDecay: 0.992,
+  maxSpeed: 0.04,
+  blades: new Map(),
+  viewers: new Map(),
+  events: [],
+  hits: [],
+  killFeed: [],
+  projectiles: [],
+  totals: { coins: 0, gifts: 0, revenueUsd: 0 },
+  winStats: new Map(),
+  colorByViewer: new Map(),
+  colorIndex: 0,
+  pending: new Set(),
+  round: {
+    status: "idle",
+    phase: "idle",
+    countdownEndsAt: 0,
+    startAt: 0,
+    shrinkStartAt: 0,
+    shrinkEndAt: 0,
+    baseRadius: 1,
+    minRadius: SAFE_MIN_RADIUS,
+    shrinkAnnounced: false,
+    banner: null,
+    winnerId: null,
+    winnerName: null,
+    winnerStreak: 0,
+    lastWinnerId: null,
+    streaks: new Map(),
+    stats: new Map(),
+    killStreaks: new Map(),
+    cooldownUntil: 0,
+    reviveLimit: SAFE_REVIVE_MAX_PER_ROUND,
+    revivesUsed: 0,
+    eliminated: new Map(),
+    revived: new Set()
+  }
+};
+
+const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+const SHOT_RADIUS = 0.012;
+const HIT_EVENT_TTL_MS = 1200;
+const safeText = (value, max = 22) => String(value || "").replace(/[<>]/g, "").trim().slice(0, max);
+const asNumber = (value, fallback) => {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+};
+
+function hashString(text) {
+  let hash = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    hash = (hash * 31 + text.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash);
+}
+
+function hslToHex(h, s, l) {
+  const sat = s / 100;
+  const light = l / 100;
+  const c = (1 - Math.abs(2 * light - 1)) * sat;
+  const hh = (h % 360) / 60;
+  const x = c * (1 - Math.abs((hh % 2) - 1));
+  let r = 0;
+  let g = 0;
+  let b = 0;
+  if (hh >= 0 && hh < 1) [r, g, b] = [c, x, 0];
+  else if (hh < 2) [r, g, b] = [x, c, 0];
+  else if (hh < 3) [r, g, b] = [0, c, x];
+  else if (hh < 4) [r, g, b] = [0, x, c];
+  else if (hh < 5) [r, g, b] = [x, 0, c];
+  else [r, g, b] = [c, 0, x];
+  const m = light - c / 2;
+  const toHex = (v) => Math.round((v + m) * 255).toString(16).padStart(2, "0");
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+}
+
+function isColorTaken(color, viewerId) {
+  for (const [id, value] of arena.colorByViewer.entries()) {
+    if (id !== viewerId && value === color) return true;
+  }
+  return false;
+}
+
+function assignUniqueColor(viewerId) {
+  const existing = arena.colorByViewer.get(viewerId);
+  if (existing) return existing;
+  const hue = (arena.colorIndex * 137.508) % 360;
+  arena.colorIndex += 1;
+  const color = hslToHex(hue, 85, 55);
+  arena.colorByViewer.set(viewerId, color);
+  return color;
+}
+
+function normalizeViewerId(userId, userName) {
+  const raw = String(userId || userName || "");
+  const base = raw.toLowerCase().replace(/[^a-z0-9_-]/g, "");
+  if (base) return base;
+  const fallback = raw || Math.random().toString(36);
+  return `viewer-${hashString(fallback).toString(36)}`;
+}
+
+function colorForViewer(viewerId) {
+  return assignUniqueColor(viewerId);
+}
+
+function pushArenaEvent(type, message, meta = {}) {
+  arena.events.push({
+    id: `ev-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    ts: Date.now(),
+    type,
+    message,
+    meta: (meta && typeof meta === "object") ? meta : {}
+  });
+  if (arena.events.length > 20) arena.events.shift();
+}
+
+function pushHitEvent(targetId, attackerId, amount, reason, now) {
+  if (!targetId || amount <= 0) return;
+  arena.hits.push({
+    id: `hit-${now}-${Math.random().toString(36).slice(2, 6)}`,
+    ts: now,
+    targetId,
+    attackerId: attackerId || null,
+    amount,
+    reason
+  });
+  if (arena.hits.length > 40) arena.hits.shift();
+}
+
+function getRoundStatsEntry(viewerId) {
+  if (!viewerId) return null;
+  if (!arena.round.stats) arena.round.stats = new Map();
+  let entry = arena.round.stats.get(viewerId);
+  const viewer = arena.viewers.get(viewerId);
+  if (!entry) {
+    entry = {
+      id: viewerId,
+      name: viewer?.name || "Viewer",
+      hits: 0,
+      damage: 0,
+      taps: 0
+    };
+    arena.round.stats.set(viewerId, entry);
+  } else if (viewer?.name && viewer.name !== entry.name) {
+    entry.name = viewer.name;
+  }
+  return entry;
+}
+
+function recordHitStats(attackerId, damage) {
+  if (!attackerId || damage <= 0) return;
+  const entry = getRoundStatsEntry(attackerId);
+  if (!entry) return;
+  entry.hits += 1;
+  entry.damage = Number((entry.damage + damage).toFixed(1));
+}
+
+function recordTapStats(viewerId, count = 1) {
+  if (!viewerId || count <= 0) return;
+  const entry = getRoundStatsEntry(viewerId);
+  if (!entry) return;
+  entry.taps += count;
+}
+
+function recordKillStreak(killerId) {
+  if (!killerId) return 0;
+  if (!arena.round.killStreaks) arena.round.killStreaks = new Map();
+  const current = arena.round.killStreaks.get(killerId) || 0;
+  const next = current + 1;
+  arena.round.killStreaks.set(killerId, next);
+  return next;
+}
+
+function resetKillStreak(viewerId) {
+  if (!viewerId || !arena.round.killStreaks) return;
+  arena.round.killStreaks.delete(viewerId);
+}
+
+function pushKillFeedEntry(victim, killerId, reason, now) {
+  if (!victim) return;
+  const killer = killerId && killerId !== victim.id ? arena.viewers.get(killerId) : null;
+  const streak = killer ? recordKillStreak(killer.id) : 0;
+  resetKillStreak(victim.id);
+  arena.killFeed.push({
+    id: `kf-${now}-${Math.random().toString(36).slice(2, 6)}`,
+    ts: now,
+    victimId: victim.id,
+    victimName: victim.name,
+    killerId: killer?.id || null,
+    killerName: killer?.name || null,
+    reason,
+    streak
+  });
+  if (arena.killFeed.length > 12) arena.killFeed.shift();
+}
+
+function buildMvpStats() {
+  const rows = arena.round.stats ? [...arena.round.stats.values()] : [];
+  const pickTop = (key) => {
+    const filtered = rows.filter((row) => (row[key] || 0) > 0);
+    if (filtered.length === 0) return null;
+    filtered.sort((a, b) => b[key] - a[key]);
+    const top = filtered[0];
+    const value = key === "damage" ? Number(top[key].toFixed(1)) : top[key];
+    return { id: top.id, name: top.name, value };
+  };
+  return {
+    hits: pickTop("hits"),
+    damage: pickTop("damage"),
+    taps: pickTop("taps")
+  };
+}
+
+function resetRoundTracking() {
+  if (arena.round.stats) arena.round.stats.clear();
+  if (arena.round.killStreaks) arena.round.killStreaks.clear();
+  arena.killFeed = [];
+  arena.hits = [];
+}
+
+function setRoundPhase(phase, message) {
+  if (arena.round.phase === phase) return;
+  arena.round.phase = phase;
+  if (message) pushArenaEvent("round", message);
+}
+
+function getOrCreateViewer(viewerId, viewerName) {
+  const name = safeText(viewerName || viewerId || "Viewer");
+  let viewer = arena.viewers.get(viewerId);
+  if (!viewer) {
+    viewer = {
+      id: viewerId,
+      name,
+      color: colorForViewer(viewerId),
+      class: "balanced",
+      coins: 0,
+      gifts: 0,
+      lastCommandAt: 0,
+      lastIngestCommandAt: 0,
+      lastShotCommandAt: 0,
+      lastSeen: Date.now()
+    };
+    arena.viewers.set(viewerId, viewer);
+  } else if (name && name !== viewer.name) {
+    viewer.name = name;
+  }
+  if (arena.round.stats && arena.round.stats.has(viewer.id)) {
+    arena.round.stats.get(viewer.id).name = viewer.name;
+  }
+  if (!viewer.color) viewer.color = colorForViewer(viewerId);
+  viewer.lastSeen = Date.now();
+  return viewer;
+}
+
+function dropOldestBlade() {
+  let oldest = null;
+  for (const blade of arena.blades.values()) {
+    if (!oldest || blade.createdAt < oldest.createdAt) oldest = blade;
+  }
+  if (oldest) {
+    arena.blades.delete(oldest.id);
+    pushArenaEvent("system", `Blade limit reached. Removing ${oldest.name}.`);
+  }
+}
+
+function createBlade(viewer) {
+  if (arena.blades.size >= Math.max(2, SAFE_MAX_BLADES)) dropOldestBlade();
+  const angle = Math.random() * Math.PI * 2;
+  const distance = 0.2 + Math.random() * 0.55;
+  const classKey = normalizeClassKey(viewer.class);
+  const now = Date.now();
+  const blade = {
+    id: viewer.id,
+    ownerId: viewer.id,
+    name: viewer.name,
+    color: viewer.color,
+    x: Math.cos(angle) * distance,
+    y: Math.sin(angle) * distance,
+    vx: (Math.random() - 0.5) * 0.02,
+    vy: (Math.random() - 0.5) * 0.02,
+    spin: 0.8 + Math.random() * 0.4,
+    energy: 1,
+    radius: 0.075,
+    hp: SAFE_HP_MAX,
+    hpMax: SAFE_HP_MAX,
+    lastHitAt: 0,
+    lastHitBy: null,
+    lastHitByAt: 0,
+    lastShotAt: 0,
+    comboHits: 0,
+    comboLastAt: 0,
+    stamina: SAFE_STAMINA_MAX,
+    staminaMax: SAFE_STAMINA_MAX,
+    staminaRegen: 1,
+    speedMultiplier: 1,
+    class: classKey,
+    momentum: 0,
+    lastMomentumAt: now,
+    lastIdleDamageAt: 0,
+    lastRegenAt: now,
+    shieldUntil: 0,
+    slowUntil: 0,
+    createdAt: now,
+    lastActionAt: now
+  };
+  applyClassToBlade(blade, classKey);
+  arena.blades.set(blade.id, blade);
+  pushArenaEvent("spawn", `${viewer.name} joined the arena.`);
+  return blade;
+}
+
+function getBlade(viewer) {
+  return arena.blades.get(viewer.id) || null;
+}
+
+function queueViewer(viewer) {
+  if (arena.pending.has(viewer.id)) return;
+  arena.pending.add(viewer.id);
+  pushArenaEvent("queue", `${viewer.name} queued for next battle.`);
+}
+
+function spawnBlade(viewer, { allowDuringRound = false } = {}) {
+  const existing = getBlade(viewer);
+  if (existing) {
+    arena.pending.delete(viewer.id);
+    return existing;
+  }
+  if (!allowDuringRound && arena.round.status === "running") {
+    queueViewer(viewer);
+    return null;
+  }
+  const blade = createBlade(viewer);
+  arena.pending.delete(viewer.id);
+  return blade;
+}
+
+function allowViewerCommand(viewer, rateMs = SAFE_COMMAND_RATE_MS, key = "lastCommandAt", now = Date.now()) {
+  const lastAt = viewer[key] || 0;
+  if (now - lastAt < rateMs) return false;
+  viewer[key] = now;
+  return true;
+}
+
+function parseChatCommand(text) {
+  const trimmed = String(text || "").trim();
+  if (!trimmed.startsWith("!")) return null;
+  const lower = trimmed.toLowerCase();
+  const [cmd, ...rest] = lower.slice(1).split(/\s+/);
+  const rawArgs = trimmed.split(/\s+/).slice(1).join(" ");
+  switch (cmd) {
+    case "join":
+    case "spawn":
+    case "beyblade":
+      return { type: "spawn" };
+    case "boost":
+    case "dash":
+      return {
+        type: "boost",
+        magnitude: rest.length > 1 ? asNumber(rest[0], 1) : 1,
+        angle: rest[0] != null
+          ? asNumber(rest.length > 1 ? rest[1] : rest[0], null)
+          : null
+      };
+    case "spin":
+      return { type: "spin" };
+    case "left":
+    case "l":
+      if (rest[0] != null) return { type: "turn", angle: asNumber(rest[0], null) };
+      return { type: "nudge", dx: -1, dy: 0 };
+    case "right":
+    case "r":
+      if (rest[0] != null) return { type: "turn", angle: asNumber(rest[0], null) };
+      return { type: "nudge", dx: 1, dy: 0 };
+    case "up":
+    case "u":
+      if (rest[0] != null) return { type: "turn", angle: asNumber(rest[0], null) };
+      return { type: "nudge", dx: 0, dy: -1 };
+    case "down":
+    case "d":
+      if (rest[0] != null) return { type: "turn", angle: asNumber(rest[0], null) };
+      return { type: "nudge", dx: 0, dy: 1 };
+    case "stop":
+      return { type: "stop" };
+    case "shield":
+      return { type: "shield" };
+    case "turn":
+    case "dir": {
+      const deg = asNumber(rest[0], null);
+      if (deg == null) return null;
+      return { type: "turn", angle: deg };
+    }
+    case "go": {
+      const deg = asNumber(rest[0], null);
+      if (deg == null) return null;
+      return { type: "turn", angle: deg };
+    }
+    case "class": {
+      const value = (rest[0] || "").toLowerCase();
+      return { type: "class", value };
+    }
+    case "aim":
+    case "angle": {
+      const deg = asNumber(rest[0], null);
+      if (deg == null) return null;
+      return { type: "aim", angle: deg };
+    }
+    case "color":
+      return { type: "color", value: rest[0] || "" };
+    case "name":
+      return { type: "name", value: rawArgs };
+    default:
+      return null;
+  }
+}
+
+function normalizeColor(value) {
+  const color = String(value || "").toLowerCase();
+  const allowed = {
+    red: "#ff4d4d",
+    blue: "#4d79ff",
+    green: "#34c759",
+    yellow: "#ffd166",
+    purple: "#6a4c93",
+    orange: "#ff8c42",
+    pink: "#fbb1d5",
+    cyan: "#00f2ea",
+    white: "#ffffff",
+    black: "#0f0f0f"
+  };
+  if (allowed[color]) return allowed[color];
+  if (/^#[0-9a-f]{6}$/i.test(color)) return color;
+  return null;
+}
+
+const CLASS_CONFIG = {
+  balanced: { hpMax: SAFE_HP_MAX, speed: 1, staminaMax: SAFE_STAMINA_MAX, staminaRegen: 1 },
+  light: { hpMax: Math.max(1, SAFE_HP_MAX - 1), speed: 1.15, staminaMax: SAFE_STAMINA_MAX, staminaRegen: 1.1 },
+  heavy: { hpMax: SAFE_HP_MAX + 2, speed: 0.88, staminaMax: SAFE_STAMINA_MAX, staminaRegen: 0.9 }
+};
+
+function normalizeClassKey(value) {
+  const key = String(value || "").toLowerCase();
+  if (key === "light" || key === "heavy" || key === "balanced") return key;
+  return "balanced";
+}
+
+function applyClassToBlade(blade, classKey) {
+  const cfg = CLASS_CONFIG[classKey] || CLASS_CONFIG.balanced;
+  const prevMax = blade.hpMax ?? cfg.hpMax;
+  blade.class = classKey;
+  blade.speedMultiplier = cfg.speed;
+  blade.staminaMax = cfg.staminaMax;
+  blade.staminaRegen = cfg.staminaRegen;
+  blade.hpMax = cfg.hpMax;
+  if (blade.hp == null) blade.hp = blade.hpMax;
+  if (blade.hp > blade.hpMax) blade.hp = blade.hpMax;
+  if (blade.hpMax > prevMax) blade.hp = Math.min(blade.hpMax, blade.hp + (blade.hpMax - prevMax));
+  if (blade.stamina == null) blade.stamina = blade.staminaMax;
+  blade.stamina = clamp(blade.stamina, 0, blade.staminaMax);
+}
+
+function getEngagement(blade) {
+  return clamp((blade.momentum || 0) / 100, 0, 1);
+}
+
+function addMomentum(blade, gain) {
+  if (!gain || gain <= 0) return;
+  blade.momentum = clamp((blade.momentum || 0) + gain, 0, 100);
+}
+
+function findNearestTarget(blade) {
+  let nearest = null;
+  let nearestDist = Infinity;
+  for (const other of arena.blades.values()) {
+    if (other.id === blade.id) continue;
+    const dx = other.x - blade.x;
+    const dy = other.y - blade.y;
+    const dist = dx * dx + dy * dy;
+    if (dist < nearestDist) {
+      nearestDist = dist;
+      nearest = other;
+    }
+  }
+  return nearest;
+}
+
+function spawnProjectile(blade, now, count = SAFE_SHOT_COUNT) {
+  const target = findNearestTarget(blade);
+  if (!target) return false;
+  const baseAngle = Math.atan2(target.y - blade.y, target.x - blade.x);
+  const offset = blade.radius + SHOT_RADIUS + 0.01;
+  const shotCount = Math.max(1, Math.round(count || 1));
+  const spread = (SAFE_SHOT_SPREAD_DEG * Math.PI) / 180;
+  for (let i = 0; i < shotCount; i += 1) {
+    const t = shotCount === 1 ? 0.5 : i / (shotCount - 1);
+    const angle = baseAngle + (t * 2 - 1) * spread;
+    const startX = blade.x + Math.cos(angle) * offset;
+    const startY = blade.y + Math.sin(angle) * offset;
+    arena.projectiles.push({
+      id: `shot-${now}-${Math.random().toString(36).slice(2, 6)}`,
+      ownerId: blade.id,
+      color: blade.color,
+      x: startX,
+      y: startY,
+      vx: Math.cos(angle) * SAFE_SHOT_SPEED,
+      vy: Math.sin(angle) * SAFE_SHOT_SPEED,
+      startX,
+      startY,
+      createdAt: now,
+      radius: SHOT_RADIUS
+    });
+  }
+  blade.lastActionAt = now;
+  return true;
+}
+
+function healBlade(blade, amount) {
+  if (!blade || amount <= 0) return 0;
+  const maxHp = blade.hpMax ?? SAFE_HP_MAX;
+  const before = blade.hp ?? maxHp;
+  const after = clamp(before + amount, 0, maxHp);
+  blade.hp = after;
+  return after - before;
+}
+
+function registerComboHit(attacker, now) {
+  if (!attacker) return 0;
+  const lastAt = attacker.comboLastAt || 0;
+  const withinWindow = now - lastAt <= SAFE_COMBO_WINDOW_MS;
+  const prevHits = attacker.comboHits || 0;
+  const nextHits = withinWindow ? prevHits + 1 : 1;
+  attacker.comboLastAt = now;
+  attacker.comboHits = Math.min(nextHits, 3);
+
+  if (nextHits === 2) {
+    addMomentum(attacker, SAFE_COMBO_MOMENTUM_BONUS);
+    pushArenaEvent("combo", `${attacker.name} combo x2!`, {
+      viewerId: attacker.id,
+      hits: 2,
+      bonus: "momentum"
+    });
+  } else if (nextHits === 3) {
+    pushArenaEvent("combo", `${attacker.name} combo x3! Damage boost!`, {
+      viewerId: attacker.id,
+      hits: 3,
+      bonus: "damage"
+    });
+    return SAFE_COMBO_DAMAGE_BONUS;
+  }
+  return 0;
+}
+
+function getBladeSpeedMultiplier(blade, now) {
+  let mult = blade.speedMultiplier || 1;
+  const engagement = getEngagement(blade);
+  mult *= 0.85 + 0.35 * engagement;
+  if (blade.slowUntil && now < blade.slowUntil) mult *= SAFE_SHIELD_SLOW_MULT;
+  return mult;
+}
+
+function spendStamina(blade, cost) {
+  if (cost <= 0) return { scale: 1, spent: 0 };
+  const stamina = blade.stamina ?? 0;
+  const ratio = stamina / cost;
+  if (ratio < 0.2) return null;
+  const scale = clamp(ratio, 0.2, 1);
+  const spent = cost * scale;
+  blade.stamina = clamp(stamina - spent, 0, blade.staminaMax || SAFE_STAMINA_MAX);
+  return { scale, spent };
+}
+
+function applyImpulse(blade, dx, dy, spinBoost = 0, energyBoost = 0, now = Date.now()) {
+  const maxSpeed = arena.maxSpeed * getBladeSpeedMultiplier(blade, now);
+  blade.vx = clamp(blade.vx + dx, -maxSpeed, maxSpeed);
+  blade.vy = clamp(blade.vy + dy, -maxSpeed, maxSpeed);
+  blade.spin = clamp(blade.spin + spinBoost, 0, 2.5);
+  blade.energy = clamp(blade.energy + energyBoost, 0, 2);
+  blade.lastActionAt = now;
+}
+
+function giftTierForCoins(coins) {
+  if (coins >= SAFE_GIFT_TIER_ULT) return "ult";
+  if (coins >= SAFE_GIFT_TIER_SHOCK) return "shock";
+  if (coins >= SAFE_GIFT_TIER_SHIELD) return "shield";
+  if (coins >= SAFE_GIFT_TIER_BOOST) return "boost";
+  return "spark";
+}
+
+function applyShield(blade, now, durationMs) {
+  blade.shieldUntil = Math.max(blade.shieldUntil || 0, now + durationMs);
+}
+
+function applyShockwave(origin, power) {
+  const range = 0.5 + power * 0.08;
+  for (const blade of arena.blades.values()) {
+    if (blade.id === origin.id) continue;
+    const dx = blade.x - origin.x;
+    const dy = blade.y - origin.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist <= 0 || dist > range) continue;
+    const falloff = 1 - dist / range;
+    const force = 0.025 * power * falloff;
+    applyImpulse(blade, (dx / dist) * force, (dy / dist) * force, 0.05 * power, 0.02 * power);
+  }
+}
+
+function markEliminated(blade, now, reason, attackerId = null) {
+  if (arena.round.status === "running") {
+    arena.round.eliminated.set(blade.id, {
+      id: blade.id,
+      name: blade.name,
+      color: blade.color,
+      eliminatedAt: now,
+      reason
+    });
+  }
+  const label = reason === "ringout"
+    ? "ringed out"
+    : reason === "idle"
+      ? "stalled out"
+      : "spun out";
+  pushArenaEvent("out", `${blade.name} ${label}.`, { viewerId: blade.id, reason });
+  pushKillFeedEntry(blade, attackerId, reason, now);
+}
+
+function applyDamage(blade, amount, now, reason, options = {}) {
+  if (amount <= 0) return false;
+  const {
+    allowFractional = false,
+    cooldownMs = SAFE_HIT_COOLDOWN_MS,
+    cooldownKey = "lastHitAt",
+    attackerId = null
+  } = options;
+  const lastHitAt = blade[cooldownKey] || 0;
+  if (cooldownMs != null && now - lastHitAt < cooldownMs) return false;
+  const shielded = blade.shieldUntil && now < blade.shieldUntil;
+  let multiplier = 1;
+  if (shielded) multiplier *= 0.6;
+  if (blade.class === "heavy") multiplier *= 0.85;
+  if (blade.class === "light") multiplier *= 1.1;
+  const engagement = getEngagement(blade);
+  multiplier *= 1.1 - 0.3 * engagement;
+  if (blade.spin >= 1.8) multiplier *= 0.4;
+  else if (blade.spin >= 1.3) multiplier *= 0.7;
+  const scaled = amount * multiplier;
+  const finalDamage = allowFractional ? Math.max(0, Number(scaled.toFixed(2))) : (scaled < 0.6 ? 0 : Math.round(scaled));
+  if (finalDamage <= 0) return false;
+  if (attackerId && attackerId !== blade.id) {
+    recordHitStats(attackerId, finalDamage);
+    blade.lastHitBy = attackerId;
+    blade.lastHitByAt = now;
+    if (reason === "collision" || reason === "shot") {
+      pushHitEvent(blade.id, attackerId, finalDamage, reason, now);
+    }
+  }
+  blade.hp = Math.max(0, (blade.hp ?? SAFE_HP_MAX) - finalDamage);
+  blade[cooldownKey] = now;
+  if (blade.hp <= 0) {
+    markEliminated(blade, now, reason, attackerId);
+    return true;
+  }
+  return false;
+}
+
+function recordWin(winner) {
+  const existing = arena.winStats.get(winner.id) || { id: winner.id, name: winner.name, wins: 0 };
+  existing.wins += 1;
+  existing.name = winner.name;
+  arena.winStats.set(winner.id, existing);
+}
+
+function getLeaderboardTop(limit = 5) {
+  const rows = [...arena.winStats.values()].map((row) => ({
+    ...row,
+    streak: arena.round.streaks.get(row.id) || 0
+  }));
+  return rows
+    .sort((a, b) => {
+      if (b.wins !== a.wins) return b.wins - a.wins;
+      if (b.streak !== a.streak) return b.streak - a.streak;
+      return a.name.localeCompare(b.name);
+    })
+    .slice(0, limit);
+}
+
+function getQueueList(limit = 8) {
+  const list = [];
+  for (const viewerId of arena.pending.values()) {
+    const viewer = arena.viewers.get(viewerId);
+    if (viewer) list.push({ id: viewer.id, name: viewer.name });
+    if (list.length >= limit) break;
+  }
+  return list;
+}
+
+function applyCommand(viewer, command, source) {
+  if (!command) return;
+  const now = Date.now();
+  if (command.type === "shoot") {
+    const lastShot = viewer.lastShotCommandAt || 0;
+    if (now - lastShot < SAFE_SHOT_COOLDOWN_MS) return;
+    viewer.lastShotCommandAt = now;
+  } else if (command.type !== "spawn") {
+    const isWeb = source === "web";
+    const rateMs = isWeb ? SAFE_COMMAND_RATE_MS : SAFE_INGEST_COMMAND_RATE_MS;
+    const key = isWeb ? "lastCommandAt" : "lastIngestCommandAt";
+    if (!allowViewerCommand(viewer, rateMs, key, now)) return;
+  }
+  const impulseMult = source === "web" ? 1 : clamp(SAFE_INGEST_IMPULSE_MULT, 1, 2.5);
+
+  if (command.type === "class") {
+    const classKey = normalizeClassKey(command.value);
+    viewer.class = classKey;
+    const blade = getBlade(viewer);
+    if (blade) applyClassToBlade(blade, classKey);
+    pushArenaEvent("class", `${viewer.name} switched to ${classKey} class.`);
+    return;
+  }
+
+  if (command.type === "shield") {
+    const blade = getBlade(viewer);
+    if (!blade) return;
+    const staminaUse = spendStamina(blade, SAFE_STAMINA_SHIELD_COST);
+    if (!staminaUse) return;
+    addMomentum(blade, SAFE_MOMENTUM_SHIELD_GAIN * staminaUse.scale);
+    blade.shieldUntil = Math.max(blade.shieldUntil || 0, now + SAFE_SHIELD_DURATION_MS);
+    blade.slowUntil = Math.max(blade.slowUntil || 0, now + SAFE_SHIELD_DURATION_MS);
+    pushArenaEvent("shield", `${viewer.name} activated shield.`);
+    return;
+  }
+
+  const blade = spawnBlade(viewer);
+  if (!blade) return;
+
+  switch (command.type) {
+    case "spawn":
+      blade.spin = 1.2;
+      blade.energy = 1;
+      applyImpulse(blade, (Math.random() - 0.5) * 0.03, (Math.random() - 0.5) * 0.03, 0.4, 0.2, now);
+      pushArenaEvent("spawn", `${viewer.name} launched a beyblade (${source}).`);
+      break;
+    case "boost": {
+      const magnitude = clamp(command.magnitude || 1, 0.5, 3);
+      const staminaUse = spendStamina(blade, SAFE_STAMINA_BOOST_COST * magnitude);
+      if (!staminaUse) return;
+      const scale = staminaUse.scale;
+      addMomentum(blade, SAFE_MOMENTUM_BOOST_GAIN * scale);
+      const angle = command.angle != null && Number.isFinite(command.angle)
+        ? (command.angle * Math.PI) / 180
+        : (Math.abs(blade.vx) > 0.001 || Math.abs(blade.vy) > 0.001)
+          ? Math.atan2(blade.vy, blade.vx)
+          : Math.random() * Math.PI * 2;
+      const force = 0.018 * magnitude * scale * impulseMult;
+      applyImpulse(
+        blade,
+        Math.cos(angle) * force,
+        Math.sin(angle) * force,
+        0.3 * magnitude * scale,
+        0.15 * magnitude * scale,
+        now
+      );
+      pushArenaEvent("boost", `${viewer.name} boosted.`);
+      break;
+    }
+    case "shoot":
+      spawnProjectile(blade, now, SAFE_SHOT_COUNT);
+      break;
+    case "spin":
+      applyImpulse(blade, 0, 0, 0.5, 0.2, now);
+      pushArenaEvent("spin", `${viewer.name} added spin.`);
+      break;
+    case "nudge": {
+      const nudge = 0.016 * impulseMult;
+      applyImpulse(blade, (command.dx || 0) * nudge, (command.dy || 0) * nudge, 0.05, 0.02, now);
+      break;
+    }
+    case "turn": {
+      if (command.angle == null || !Number.isFinite(command.angle)) return;
+      const nudge = 0.016 * impulseMult;
+      const angle = (command.angle * Math.PI) / 180;
+      applyImpulse(blade, Math.cos(angle) * nudge, Math.sin(angle) * nudge, 0.05, 0.02, now);
+      break;
+    }
+    case "aim": {
+      const staminaUse = spendStamina(blade, SAFE_STAMINA_DASH_COST);
+      if (!staminaUse) return;
+      const scale = staminaUse.scale;
+      addMomentum(blade, SAFE_MOMENTUM_DASH_GAIN * scale);
+      const angle = ((command.angle || 0) * Math.PI) / 180;
+      const force = 0.02 * scale * impulseMult;
+      applyImpulse(blade, Math.cos(angle) * force, Math.sin(angle) * force, 0.1 * scale, 0.05 * scale, now);
+      pushArenaEvent("aim", `${viewer.name} dashed at ${Math.round(command.angle)}°.`);
+      break;
+    }
+    case "stop":
+      blade.vx = 0;
+      blade.vy = 0;
+      blade.spin = clamp(blade.spin - 0.2, 0, 2.5);
+      pushArenaEvent("stop", `${viewer.name} stopped the blade.`);
+      break;
+    case "color": {
+      const color = normalizeColor(command.value);
+      if (color) {
+        if (isColorTaken(color, viewer.id)) {
+          pushArenaEvent("color", `${viewer.name} tried a taken color.`, { rejected: true });
+          return;
+        }
+        viewer.color = color;
+        blade.color = color;
+        arena.colorByViewer.set(viewer.id, color);
+        pushArenaEvent("color", `${viewer.name} changed color.`);
+      }
+      break;
+    }
+    case "name": {
+      const name = safeText(command.value, 22);
+      if (name) {
+        viewer.name = name;
+        blade.name = name;
+        pushArenaEvent("name", `Viewer updated name to ${name}.`);
+      }
+      break;
+    }
+    default:
+      break;
+  }
+}
+
+function handleGift(viewer, event) {
+  const now = Date.now();
+  const value = asNumber(event.value || event.amount || event.coins, 0);
+  const repeat = Math.max(1, asNumber(event.repeat || event.count, 1));
+  const coins = value * repeat;
+  const tier = giftTierForCoins(coins);
+  const giftName = safeText(event.name || event.giftName || "Gift", 24);
+
+  let blade = getBlade(viewer);
+  if (!blade) {
+    if (arena.round.status === "running") {
+      const canRevive = coins >= SAFE_GIFT_REVIVE
+        && arena.round.eliminated.has(viewer.id)
+        && !arena.round.revived.has(viewer.id)
+        && arena.round.revivesUsed < arena.round.reviveLimit;
+      if (canRevive) {
+        blade = createBlade(viewer);
+        blade.spin = 1.4;
+        blade.energy = 1.4;
+        applyImpulse(blade, (Math.random() - 0.5) * 0.04, (Math.random() - 0.5) * 0.04, 0.4, 0.2);
+        arena.round.eliminated.delete(viewer.id);
+        arena.round.revived.add(viewer.id);
+        arena.round.revivesUsed += 1;
+        pushArenaEvent("revive", `${viewer.name} revived with ${giftName}!`, {
+          viewerId: viewer.id,
+          coins,
+          repeat,
+          giftName,
+          tier,
+          revive: true
+        });
+      } else {
+        queueViewer(viewer);
+      }
+    } else {
+      blade = spawnBlade(viewer);
+    }
+  }
+
+  viewer.coins += coins;
+  viewer.gifts += repeat;
+  arena.totals.coins += coins;
+  arena.totals.gifts += repeat;
+  arena.totals.revenueUsd = Number((arena.totals.coins * SAFE_COIN_TO_USD).toFixed(2));
+
+  if (!blade) {
+    pushArenaEvent("gift", `${viewer.name} sent ${giftName} x${repeat}.`, {
+      viewerId: viewer.id,
+      coins,
+      repeat,
+      giftName,
+      tier,
+      queued: true
+    });
+    return;
+  }
+
+  const isRose = giftName.toLowerCase().includes("rose");
+  if (isRose) {
+    const healed = healBlade(blade, SAFE_ROSE_HEAL * repeat);
+    if (healed > 0) {
+      const healedLabel = Number(healed.toFixed(1));
+      pushArenaEvent("heal", `${viewer.name} healed +${healedLabel} with ${giftName}.`, {
+        viewerId: viewer.id,
+        amount: healed,
+        giftName
+      });
+    }
+  }
+
+  const angle = Math.random() * Math.PI * 2;
+  const boost = clamp(coins / 200, 0.2, 1.4);
+  applyImpulse(blade, Math.cos(angle) * 0.02 * boost, Math.sin(angle) * 0.02 * boost, 0.4 * boost, 0.2 * boost);
+
+  if (tier === "shield") applyShield(blade, now, 3500);
+  if (tier === "shock") applyShockwave(blade, 1.2);
+  if (tier === "ult") applyShockwave(blade, 1.9);
+
+  const tierLabel = tier.toUpperCase();
+  const message = tier === "spark"
+    ? `${viewer.name} sent ${giftName} x${repeat}.`
+    : `${viewer.name} triggered ${tierLabel} with ${giftName} x${repeat}.`;
+  pushArenaEvent("gift", message, {
+    viewerId: viewer.id,
+    coins,
+    repeat,
+    giftName,
+    tier
+  });
+}
+
+function startRoundCountdown(now) {
+  arena.round.status = "countdown";
+  setRoundPhase("start");
+  arena.round.countdownEndsAt = now + SAFE_ROUND_COUNTDOWN_MS;
+  arena.round.banner = null;
+  pushArenaEvent("round", `Battle starts in ${Math.round(SAFE_ROUND_COUNTDOWN_MS / 1000)}s.`);
+}
+
+function startRound(now) {
+  arena.round.status = "running";
+  setRoundPhase("start");
+  resetRoundTracking();
+  arena.round.startAt = now;
+  arena.round.countdownEndsAt = 0;
+  arena.round.shrinkStartAt = now + SAFE_ROUND_SHRINK_START_MS;
+  arena.round.shrinkEndAt = now + SAFE_ROUND_SHRINK_END_MS;
+  arena.round.baseRadius = 1;
+  arena.round.minRadius = SAFE_MIN_RADIUS;
+  arena.round.shrinkAnnounced = false;
+  arena.round.banner = null;
+  arena.round.reviveLimit = SAFE_REVIVE_MAX_PER_ROUND;
+  arena.round.revivesUsed = 0;
+  arena.round.eliminated.clear();
+  arena.round.revived.clear();
+  arena.radius = arena.round.baseRadius;
+  pushArenaEvent("round", "Battle started!");
+}
+
+function finishRound(now, winner) {
+  arena.round.status = "finished";
+  setRoundPhase("end", "End phase: final duel!");
+  arena.round.cooldownUntil = now + SAFE_ROUND_COOLDOWN_MS;
+  arena.round.shrinkAnnounced = false;
+  arena.radius = arena.round.baseRadius;
+  arena.blades.clear();
+  arena.pending.clear();
+  arena.projectiles = [];
+
+  let streak = 0;
+  if (winner) {
+    streak = arena.round.lastWinnerId === winner.id ? (arena.round.streaks.get(winner.id) || 0) + 1 : 1;
+    arena.round.streaks.set(winner.id, streak);
+    arena.round.lastWinnerId = winner.id;
+    arena.round.winnerId = winner.id;
+    arena.round.winnerName = winner.name;
+    arena.round.winnerStreak = streak;
+    recordWin(winner);
+    pushArenaEvent("round", `${winner.name} wins! Streak x${streak}.`, {
+      winnerId: winner.id,
+      streak
+    });
+    arena.round.banner = {
+      id: `bn-${now}-${winner.id}`,
+      ts: now,
+      durationMs: 7000,
+      text: `${winner.name} wins!`,
+      subtext: `Streak x${streak}`
+    };
+  } else {
+    arena.round.lastWinnerId = null;
+    arena.round.winnerId = null;
+    arena.round.winnerName = null;
+    arena.round.winnerStreak = 0;
+    pushArenaEvent("round", "Round ended. No winner.");
+    arena.round.banner = {
+      id: `bn-${now}-none`,
+      ts: now,
+      durationMs: 6000,
+      text: "Round ended",
+      subtext: "No winner"
+    };
+  }
+}
+
+function resetRound() {
+  arena.round.status = "idle";
+  setRoundPhase("idle");
+  arena.round.countdownEndsAt = 0;
+  arena.round.startAt = 0;
+  arena.round.shrinkStartAt = 0;
+  arena.round.shrinkEndAt = 0;
+  arena.round.banner = null;
+  arena.round.winnerId = null;
+  arena.round.winnerName = null;
+  arena.round.winnerStreak = 0;
+  arena.round.cooldownUntil = 0;
+  arena.round.revivesUsed = 0;
+  arena.round.eliminated.clear();
+  arena.round.revived.clear();
+  arena.radius = arena.round.baseRadius;
+  arena.pending.clear();
+  arena.projectiles = [];
+  resetRoundTracking();
+}
+
+function updateRoundState(now) {
+  const activeCount = arena.blades.size;
+  if (arena.round.status === "idle") {
+    setRoundPhase("idle");
+    if (activeCount >= SAFE_MIN_PLAYERS && now >= arena.round.cooldownUntil) {
+      startRoundCountdown(now);
+    }
+    return;
+  }
+
+  if (arena.round.status === "countdown") {
+    setRoundPhase("start");
+    if (activeCount < SAFE_MIN_PLAYERS) {
+      arena.round.status = "idle";
+      arena.round.countdownEndsAt = 0;
+      setRoundPhase("idle");
+      pushArenaEvent("round", "Countdown cancelled. Waiting for players.");
+      return;
+    }
+    if (now >= arena.round.countdownEndsAt) startRound(now);
+    return;
+  }
+
+  if (arena.round.status === "running") {
+    let nextPhase = "start";
+    if (activeCount <= 2 || (arena.round.shrinkEndAt && now >= arena.round.shrinkEndAt)) {
+      nextPhase = "end";
+    } else if (arena.round.shrinkStartAt && now >= arena.round.shrinkStartAt) {
+      nextPhase = "middle";
+    }
+
+    if (nextPhase === "middle") {
+      setRoundPhase("middle", "Middle phase: arena shrinking.");
+    } else if (nextPhase === "end") {
+      setRoundPhase("end", "End phase: final duel!");
+    } else {
+      setRoundPhase("start");
+    }
+
+    if (now >= arena.round.shrinkStartAt) {
+      if (!arena.round.shrinkAnnounced) {
+        arena.round.shrinkAnnounced = true;
+      }
+      const total = Math.max(1, arena.round.shrinkEndAt - arena.round.shrinkStartAt);
+      const progress = clamp((now - arena.round.shrinkStartAt) / total, 0, 1);
+      arena.radius = arena.round.baseRadius - (arena.round.baseRadius - arena.round.minRadius) * progress;
+    } else {
+      arena.radius = arena.round.baseRadius;
+    }
+
+    if (activeCount <= 1) {
+      const winner = activeCount === 1 ? [...arena.blades.values()][0] : null;
+      finishRound(now, winner);
+    }
+    return;
+  }
+
+  if (arena.round.status === "finished") {
+    setRoundPhase("end");
+    if (now >= arena.round.cooldownUntil) resetRound();
+  }
+}
+
+function handleBeybladeEvent(event, source = "tiktok") {
+  const viewerId = normalizeViewerId(event.userId || event.user || event.viewerId, event.userName || event.username);
+  const viewerName = event.userName || event.username || event.user || event.userId || "Viewer";
+  const viewer = getOrCreateViewer(viewerId, viewerName);
+
+  if (event.type === "gift") {
+    handleGift(viewer, event);
+    return;
+  }
+
+  if (event.type === "like") {
+    const likeCount = Math.max(1, asNumber(event.count || event.likes || event.likeCount, 1));
+    recordTapStats(viewer.id, likeCount);
+    applyCommand(viewer, { type: "shoot" }, source);
+    return;
+  }
+
+  if (event.type === "follow") {
+    applyCommand(viewer, { type: "spawn" }, source);
+    return;
+  }
+
+  if (event.type === "chat") {
+    const command = parseChatCommand(event.message || event.text || "");
+    if (command) applyCommand(viewer, command, source);
+  }
+}
+
+function stepArena() {
+  const now = Date.now();
+  updateRoundState(now);
+  if (arena.hits.length > 0) {
+    const cutoff = now - HIT_EVENT_TTL_MS;
+    arena.hits = arena.hits.filter((hit) => hit.ts >= cutoff);
+  }
+  const blades = [...arena.blades.values()];
+  const removed = new Set();
+  for (const blade of blades) {
+    if (removed.has(blade.id)) continue;
+    blade.x += blade.vx;
+    blade.y += blade.vy;
+    blade.vx *= arena.friction;
+    blade.vy *= arena.friction;
+    blade.spin *= arena.spinDecay;
+    blade.energy = clamp(blade.energy - 0.002, 0, 2);
+    const lastMomentum = blade.lastMomentumAt || now;
+    const deltaSec = Math.max(0, (now - lastMomentum) / 1000);
+    blade.momentum = clamp((blade.momentum || 0) - SAFE_MOMENTUM_DECAY_PER_SEC * deltaSec, 0, 100);
+    blade.lastMomentumAt = now;
+    const regenRate = (SAFE_STAMINA_REGEN_PER_SEC / 1000) * (blade.staminaRegen || 1);
+    const engagement = getEngagement(blade);
+    const regenMultiplier = 0.7 + 0.6 * engagement;
+    const lastRegen = blade.lastRegenAt || now;
+    const regenDelta = Math.max(0, now - lastRegen);
+    blade.stamina = clamp((blade.stamina ?? SAFE_STAMINA_MAX) + regenDelta * regenRate * regenMultiplier, 0, blade.staminaMax || SAFE_STAMINA_MAX);
+    blade.lastRegenAt = now;
+
+    const speed = Math.hypot(blade.vx, blade.vy);
+    const speedLimit = arena.maxSpeed * getBladeSpeedMultiplier(blade, now);
+    if (speed > speedLimit) {
+      blade.vx = (blade.vx / speed) * speedLimit;
+      blade.vy = (blade.vy / speed) * speedLimit;
+    }
+
+    if (speed < SAFE_IDLE_SPEED_THRESHOLD && now - blade.lastActionAt >= SAFE_IDLE_DAMAGE_DELAY_MS) {
+      const lastIdle = blade.lastIdleDamageAt || 0;
+      if (now - lastIdle >= SAFE_IDLE_DAMAGE_INTERVAL_MS) {
+        blade.lastIdleDamageAt = now;
+        if (applyDamage(blade, SAFE_IDLE_DAMAGE, now, "idle")) {
+          removed.add(blade.id);
+          continue;
+        }
+      }
+    }
+
+    const limit = arena.radius - blade.radius;
+    const dist = Math.hypot(blade.x, blade.y);
+    if (dist > limit) {
+      const speed = Math.hypot(blade.vx, blade.vy);
+      if (dist > limit + SAFE_RING_OUT_BUFFER && speed > SAFE_RING_OUT_SPEED) {
+        markEliminated(blade, now, "ringout");
+        removed.add(blade.id);
+        continue;
+      }
+      const nx = blade.x / dist;
+      const ny = blade.y / dist;
+      blade.x = nx * limit;
+      blade.y = ny * limit;
+      const dot = blade.vx * nx + blade.vy * ny;
+      blade.vx -= 2 * dot * nx;
+      blade.vy -= 2 * dot * ny;
+      blade.vx *= arena.bounce;
+      blade.vy *= arena.bounce;
+      const shielded = blade.shieldUntil && now < blade.shieldUntil;
+      const spinLoss = shielded ? 0.02 : 0.05;
+      blade.spin = clamp(blade.spin - spinLoss, 0, 2.5);
+
+      if (speed > SAFE_WALL_SPEED_THRESHOLD) {
+        const damage = speed > SAFE_WALL_SPEED_THRESHOLD * 1.6 ? SAFE_DAMAGE_WALL + 1 : SAFE_DAMAGE_WALL;
+        const eliminated = applyDamage(blade, damage, now, "ringout");
+        if (eliminated) removed.add(blade.id);
+      }
+    }
+  }
+
+  if (arena.projectiles.length > 0) {
+    const nextProjectiles = [];
+    for (const shot of arena.projectiles) {
+      shot.x += shot.vx;
+      shot.y += shot.vy;
+      const traveled = Math.hypot(shot.x - shot.startX, shot.y - shot.startY);
+      if (traveled > SAFE_SHOT_RANGE) continue;
+      let hit = false;
+      for (const blade of blades) {
+        if (blade.id === shot.ownerId) continue;
+        if (removed.has(blade.id)) continue;
+        const dist = Math.hypot(shot.x - blade.x, shot.y - blade.y);
+        const radius = (shot.radius || SHOT_RADIUS) + blade.radius;
+        if (dist <= radius) {
+          if (applyDamage(blade, SAFE_SHOT_DAMAGE, now, "shot", {
+            allowFractional: true,
+            cooldownMs: 0,
+            cooldownKey: "lastShotAt",
+            attackerId: shot.ownerId
+          })) {
+            removed.add(blade.id);
+          }
+          hit = true;
+          break;
+        }
+      }
+      if (!hit) nextProjectiles.push(shot);
+    }
+    arena.projectiles = nextProjectiles;
+  }
+
+  for (let i = 0; i < blades.length; i += 1) {
+    for (let j = i + 1; j < blades.length; j += 1) {
+      const a = blades[i];
+      const b = blades[j];
+      if (removed.has(a.id) || removed.has(b.id)) continue;
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const dist = Math.hypot(dx, dy);
+      const minDist = a.radius + b.radius;
+      if (dist > 0 && dist < minDist) {
+        const speedA = Math.hypot(a.vx, a.vy);
+        const speedB = Math.hypot(b.vx, b.vy);
+        const nx = dx / dist;
+        const ny = dy / dist;
+        const overlap = minDist - dist;
+        a.x -= nx * overlap * 0.5;
+        a.y -= ny * overlap * 0.5;
+        b.x += nx * overlap * 0.5;
+        b.y += ny * overlap * 0.5;
+
+        const dvx = b.vx - a.vx;
+        const dvy = b.vy - a.vy;
+        const impact = dvx * nx + dvy * ny;
+        if (impact < 0) {
+          const impulse = -impact * 0.8;
+          a.vx -= impulse * nx;
+          a.vy -= impulse * ny;
+          b.vx += impulse * nx;
+          b.vy += impulse * ny;
+        }
+        const shieldA = a.shieldUntil && now < a.shieldUntil;
+        const shieldB = b.shieldUntil && now < b.shieldUntil;
+        const loss = 0.03;
+        a.spin = clamp(a.spin - (shieldA ? loss * 0.4 : loss), 0, 2.5);
+        b.spin = clamp(b.spin - (shieldB ? loss * 0.4 : loss), 0, 2.5);
+
+        const relSpeed = Math.hypot(dvx, dvy);
+        if (relSpeed > SAFE_COLLISION_SPEED_THRESHOLD) {
+          const aggressor = speedA >= speedB ? a : b;
+          const defender = aggressor === a ? b : a;
+          if (aggressor === a) {
+            addMomentum(a, SAFE_MOMENTUM_COLLISION_FAST);
+            addMomentum(b, SAFE_MOMENTUM_COLLISION_SLOW);
+          } else {
+            addMomentum(b, SAFE_MOMENTUM_COLLISION_FAST);
+            addMomentum(a, SAFE_MOMENTUM_COLLISION_SLOW);
+          }
+          const comboBonus = registerComboHit(aggressor, now);
+          const baseDamage = relSpeed > SAFE_COLLISION_SPEED_THRESHOLD * 1.7
+            ? SAFE_DAMAGE_COLLISION + 1
+            : SAFE_DAMAGE_COLLISION;
+          const speedDiff = Math.max(0, Math.abs(speedA - speedB));
+          const maxSpeed = Math.max(speedA, speedB, 0.001);
+          const speedBonus = Math.round(clamp((speedDiff / maxSpeed) * 2, 0, 2));
+          const totalDamage = baseDamage + speedBonus + comboBonus;
+          if (applyDamage(defender, totalDamage, now, "collision", { attackerId: aggressor.id })) {
+            removed.add(defender.id);
+          }
+        }
+      }
+    }
+  }
+
+  if (removed.size > 0) {
+    for (const id of removed.values()) {
+      arena.blades.delete(id);
+    }
+  }
+
+  updateRoundState(now);
+
+  if (beybladeIo.sockets.size > 0) {
+    beybladeIo.emit("state", packArenaState());
+  }
+}
+
+function packArenaState() {
+  const now = Date.now();
+  const countdownMs = arena.round.status === "countdown"
+    ? Math.max(0, arena.round.countdownEndsAt - now)
+    : 0;
+  const leaderboard = getLeaderboardTop(5);
+  const queue = getQueueList(8);
+  const mvp = buildMvpStats();
+  return {
+    ts: now,
+    arena: {
+      radius: arena.radius,
+      maxBlades: Math.max(2, SAFE_MAX_BLADES),
+      tickMs: SAFE_TICK_MS
+    },
+    round: {
+      status: arena.round.status,
+      phase: arena.round.phase,
+      countdownMs,
+      startAt: arena.round.startAt,
+      shrinkStartAt: arena.round.shrinkStartAt,
+      shrinkEndAt: arena.round.shrinkEndAt,
+      cooldownUntil: arena.round.cooldownUntil,
+      winnerId: arena.round.winnerId,
+      winnerName: arena.round.winnerName,
+      winnerStreak: arena.round.winnerStreak,
+      banner: arena.round.banner,
+      alive: arena.blades.size,
+      reviveLimit: arena.round.reviveLimit,
+      revivesUsed: arena.round.revivesUsed
+    },
+    queue,
+    leaderboard,
+    stats: {
+      blades: arena.blades.size,
+      viewers: arena.viewers.size,
+      coins: Math.round(arena.totals.coins),
+      gifts: arena.totals.gifts,
+      revenueUsd: arena.totals.revenueUsd
+    },
+    mvp,
+    killFeed: arena.killFeed.slice(-6),
+    hits: arena.hits.slice(-20),
+    projectiles: arena.projectiles.map((shot) => ({
+      id: shot.id,
+      x: shot.x,
+      y: shot.y,
+      radius: shot.radius || SHOT_RADIUS,
+      color: shot.color || "#ffffff"
+    })),
+    events: arena.events.slice(-12),
+    blades: [...arena.blades.values()].map(blade => ({
+      id: blade.id,
+      name: blade.name,
+      color: blade.color,
+      x: blade.x,
+      y: blade.y,
+      vx: blade.vx,
+      vy: blade.vy,
+      spin: blade.spin,
+      energy: blade.energy,
+      radius: blade.radius,
+      hp: blade.hp ?? SAFE_HP_MAX,
+      hpMax: blade.hpMax ?? SAFE_HP_MAX,
+      stamina: blade.stamina ?? SAFE_STAMINA_MAX,
+      staminaMax: blade.staminaMax ?? SAFE_STAMINA_MAX,
+      class: blade.class || "balanced",
+      momentum: blade.momentum || 0,
+      shielded: blade.shieldUntil ? blade.shieldUntil > now : false
+    }))
+  };
+}
+
+beybladeIo.on("connection", (socket) => {
+  const viewerId = normalizeViewerId(socket.handshake.auth?.viewerId || socket.id, socket.handshake.auth?.viewerName);
+  const viewerName = safeText(socket.handshake.auth?.viewerName || "Viewer");
+  const viewer = getOrCreateViewer(viewerId, viewerName);
+  socket.data.viewerId = viewerId;
+
+  socket.emit("welcome", { viewerId, viewerName: viewer.name, color: viewer.color });
+  socket.emit("state", packArenaState());
+
+  socket.on("register", ({ viewerName: newName }) => {
+    const updated = safeText(newName, 22);
+    if (updated) {
+      viewer.name = updated;
+      const blade = arena.blades.get(viewer.id);
+      if (blade) blade.name = updated;
+      pushArenaEvent("name", `Viewer updated name to ${updated}.`);
+    }
+  });
+
+  socket.on("control", ({ action, angle, message, dx, dy, magnitude }) => {
+    if (action === "chat" && message) {
+      handleBeybladeEvent({ type: "chat", userId: viewer.id, userName: viewer.name, message }, "web");
+      return;
+    }
+    if (!action) return;
+    applyCommand(viewer, { type: action, angle, dx, dy, magnitude }, "web");
+  });
+
+  socket.on("spawn", () => applyCommand(viewer, { type: "spawn" }, "web"));
+});
+
+app.post("/api/beyblade/events", (req, res) => {
+  if (BEYBLADE_INGEST_SECRET) {
+    const token = req.headers["x-beyblade-secret"] || req.headers.authorization;
+    const clean = String(token || "").replace(/^Bearer\s+/i, "");
+    if (clean !== BEYBLADE_INGEST_SECRET) {
+      return res.status(401).json({ ok: false, error: "unauthorized" });
+    }
+  }
+  const event = req.body || {};
+  if (!event.type) return res.status(400).json({ ok: false, error: "missing type" });
+  handleBeybladeEvent(event, "ingest");
+  return res.json({ ok: true });
+});
+
+app.get("/api/beyblade/state", (_, res) => res.json(packArenaState()));
+
+setInterval(stepArena, Math.max(30, SAFE_TICK_MS));
 
 /* ===== Konstantes ===== */
 const RANKS_36 = ["6","7","8","9","10","J","Q","K","A"];
