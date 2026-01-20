@@ -39,7 +39,9 @@ This repo hosts the Beyblade arena and the TikTok Live bridge.
 - Optional shooting tuning:
   - `BEYBLADE_SHOT_SPEED=0.012`
   - `BEYBLADE_SHOT_RANGE=0.45`
-  - `BEYBLADE_SHOT_DAMAGE=0.2`
+  - `BEYBLADE_SHOT_DAMAGE=3`
+  - `BEYBLADE_SHOT_COUNT=3`
+  - `BEYBLADE_SHOT_SPREAD_DEG=8`
   - `BEYBLADE_SHOT_COOLDOWN_MS=300`
 - Optional combo tuning:
   - `BEYBLADE_COMBO_WINDOW_MS=2000`

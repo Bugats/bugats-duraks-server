@@ -80,7 +80,9 @@ const BEYBLADE_IDLE_SPEED_THRESHOLD = Number(process.env.BEYBLADE_IDLE_SPEED_THR
 const BEYBLADE_IDLE_DAMAGE = Number(process.env.BEYBLADE_IDLE_DAMAGE || 1);
 const BEYBLADE_SHOT_SPEED = Number(process.env.BEYBLADE_SHOT_SPEED || 0.012);
 const BEYBLADE_SHOT_RANGE = Number(process.env.BEYBLADE_SHOT_RANGE || 0.45);
-const BEYBLADE_SHOT_DAMAGE = Number(process.env.BEYBLADE_SHOT_DAMAGE || 0.2);
+const BEYBLADE_SHOT_DAMAGE = Number(process.env.BEYBLADE_SHOT_DAMAGE || 3);
+const BEYBLADE_SHOT_COUNT = Number(process.env.BEYBLADE_SHOT_COUNT || 3);
+const BEYBLADE_SHOT_SPREAD_DEG = Number(process.env.BEYBLADE_SHOT_SPREAD_DEG || 8);
 const BEYBLADE_SHOT_COOLDOWN_MS = Number(process.env.BEYBLADE_SHOT_COOLDOWN_MS || 300);
 const BEYBLADE_ROSE_HEAL = Number(process.env.BEYBLADE_ROSE_HEAL || 3);
 const BEYBLADE_COMBO_WINDOW_MS = Number(process.env.BEYBLADE_COMBO_WINDOW_MS || 2000);
@@ -130,7 +132,9 @@ const SAFE_IDLE_SPEED_THRESHOLD = Number.isFinite(BEYBLADE_IDLE_SPEED_THRESHOLD)
 const SAFE_IDLE_DAMAGE = Number.isFinite(BEYBLADE_IDLE_DAMAGE) ? BEYBLADE_IDLE_DAMAGE : 1;
 const SAFE_SHOT_SPEED = Number.isFinite(BEYBLADE_SHOT_SPEED) ? BEYBLADE_SHOT_SPEED : 0.012;
 const SAFE_SHOT_RANGE = Number.isFinite(BEYBLADE_SHOT_RANGE) ? BEYBLADE_SHOT_RANGE : 0.45;
-const SAFE_SHOT_DAMAGE = Number.isFinite(BEYBLADE_SHOT_DAMAGE) ? BEYBLADE_SHOT_DAMAGE : 0.2;
+const SAFE_SHOT_DAMAGE = Number.isFinite(BEYBLADE_SHOT_DAMAGE) ? BEYBLADE_SHOT_DAMAGE : 3;
+const SAFE_SHOT_COUNT = Number.isFinite(BEYBLADE_SHOT_COUNT) ? BEYBLADE_SHOT_COUNT : 3;
+const SAFE_SHOT_SPREAD_DEG = Number.isFinite(BEYBLADE_SHOT_SPREAD_DEG) ? BEYBLADE_SHOT_SPREAD_DEG : 8;
 const SAFE_SHOT_COOLDOWN_MS = Number.isFinite(BEYBLADE_SHOT_COOLDOWN_MS) ? BEYBLADE_SHOT_COOLDOWN_MS : 300;
 const SAFE_ROSE_HEAL = Number.isFinite(BEYBLADE_ROSE_HEAL) ? BEYBLADE_ROSE_HEAL : 3;
 const SAFE_COMBO_WINDOW_MS = Number.isFinite(BEYBLADE_COMBO_WINDOW_MS) ? BEYBLADE_COMBO_WINDOW_MS : 2000;
@@ -284,6 +288,7 @@ function getOrCreateViewer(viewerId, viewerName) {
       coins: 0,
       gifts: 0,
       lastCommandAt: 0,
+      lastShotCommandAt: 0,
       lastSeen: Date.now()
     };
     arena.viewers.set(viewerId, viewer);
@@ -525,26 +530,32 @@ function findNearestTarget(blade) {
   return nearest;
 }
 
-function spawnProjectile(blade, now) {
+function spawnProjectile(blade, now, count = SAFE_SHOT_COUNT) {
   const target = findNearestTarget(blade);
   if (!target) return false;
-  const angle = Math.atan2(target.y - blade.y, target.x - blade.x);
+  const baseAngle = Math.atan2(target.y - blade.y, target.x - blade.x);
   const offset = blade.radius + SHOT_RADIUS + 0.01;
-  const startX = blade.x + Math.cos(angle) * offset;
-  const startY = blade.y + Math.sin(angle) * offset;
-  arena.projectiles.push({
-    id: `shot-${now}-${Math.random().toString(36).slice(2, 6)}`,
-    ownerId: blade.id,
-    color: blade.color,
-    x: startX,
-    y: startY,
-    vx: Math.cos(angle) * SAFE_SHOT_SPEED,
-    vy: Math.sin(angle) * SAFE_SHOT_SPEED,
-    startX,
-    startY,
-    createdAt: now,
-    radius: SHOT_RADIUS
-  });
+  const shotCount = Math.max(1, Math.round(count || 1));
+  const spread = (SAFE_SHOT_SPREAD_DEG * Math.PI) / 180;
+  for (let i = 0; i < shotCount; i += 1) {
+    const t = shotCount === 1 ? 0.5 : i / (shotCount - 1);
+    const angle = baseAngle + (t * 2 - 1) * spread;
+    const startX = blade.x + Math.cos(angle) * offset;
+    const startY = blade.y + Math.sin(angle) * offset;
+    arena.projectiles.push({
+      id: `shot-${now}-${Math.random().toString(36).slice(2, 6)}`,
+      ownerId: blade.id,
+      color: blade.color,
+      x: startX,
+      y: startY,
+      vx: Math.cos(angle) * SAFE_SHOT_SPEED,
+      vy: Math.sin(angle) * SAFE_SHOT_SPEED,
+      startX,
+      startY,
+      createdAt: now,
+      radius: SHOT_RADIUS
+    });
+  }
   blade.lastActionAt = now;
   return true;
 }
@@ -720,8 +731,14 @@ function getQueueList(limit = 8) {
 
 function applyCommand(viewer, command, source) {
   if (!command) return;
-  if (command.type !== "spawn" && !allowViewerCommand(viewer)) return;
   const now = Date.now();
+  if (command.type === "shoot") {
+    const lastShot = viewer.lastShotCommandAt || 0;
+    if (now - lastShot < SAFE_SHOT_COOLDOWN_MS) return;
+    viewer.lastShotCommandAt = now;
+  } else if (command.type !== "spawn" && !allowViewerCommand(viewer)) {
+    return;
+  }
 
   if (command.type === "class") {
     const classKey = normalizeClassKey(command.value);
@@ -771,7 +788,7 @@ function applyCommand(viewer, command, source) {
       break;
     }
     case "shoot":
-      spawnProjectile(blade, now);
+      spawnProjectile(blade, now, SAFE_SHOT_COUNT);
       break;
     case "spin":
       applyImpulse(blade, 0, 0, 0.5, 0.2, now);
@@ -1196,7 +1213,7 @@ function stepArena() {
         if (dist <= radius) {
           if (applyDamage(blade, SAFE_SHOT_DAMAGE, now, "shot", {
             allowFractional: true,
-            cooldownMs: SAFE_SHOT_COOLDOWN_MS,
+            cooldownMs: 0,
             cooldownKey: "lastShotAt"
           })) {
             removed.add(blade.id);
