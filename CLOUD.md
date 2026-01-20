@@ -13,6 +13,10 @@ This repo hosts the Beyblade arena and the TikTok Live bridge.
   - `BEYBLADE_MAX_BLADES=7`
   - `BEYBLADE_ROUND_SHRINK_START_MS=120000`
   - `BEYBLADE_ROUND_SHRINK_END_MS=240000`
+- Optional chat tuning (TikTok responsiveness):
+  - `BEYBLADE_COMMAND_RATE_MS=350`
+  - `BEYBLADE_INGEST_COMMAND_RATE_MS=200`
+  - `BEYBLADE_INGEST_IMPULSE_MULT=1.3`
 - Optional: `BEYBLADE_INGEST_SECRET=<secret>`
 - Optional: `TIKTOK_SESSION_ID=<tiktok session id>`
 - Optional gift tuning:

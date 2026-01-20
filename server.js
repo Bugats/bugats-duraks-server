@@ -53,6 +53,8 @@ const BEYBLADE_INGEST_SECRET = process.env.BEYBLADE_INGEST_SECRET || "";
 const BEYBLADE_MAX_BLADES = Number(process.env.BEYBLADE_MAX_BLADES || 7);
 const BEYBLADE_TICK_MS = Number(process.env.BEYBLADE_TICK_MS || 50);
 const BEYBLADE_COMMAND_RATE_MS = Number(process.env.BEYBLADE_COMMAND_RATE_MS || 350);
+const BEYBLADE_INGEST_COMMAND_RATE_MS = Number(process.env.BEYBLADE_INGEST_COMMAND_RATE_MS || 200);
+const BEYBLADE_INGEST_IMPULSE_MULT = Number(process.env.BEYBLADE_INGEST_IMPULSE_MULT || 1.3);
 const BEYBLADE_COIN_TO_USD = Number(process.env.BEYBLADE_COIN_TO_USD || 0.005);
 const BEYBLADE_ROUND_COUNTDOWN_MS = Number(process.env.BEYBLADE_ROUND_COUNTDOWN_MS || 5000);
 const BEYBLADE_ROUND_SHRINK_START_MS = Number(process.env.BEYBLADE_ROUND_SHRINK_START_MS || 120000);
@@ -105,6 +107,8 @@ const BEYBLADE_COLORS = ["#0f0f0f", "#1a1a1a", "#00f2ea", "#ff0050", "#ffffff", 
 const SAFE_MAX_BLADES = Number.isFinite(BEYBLADE_MAX_BLADES) ? BEYBLADE_MAX_BLADES : 7;
 const SAFE_TICK_MS = Number.isFinite(BEYBLADE_TICK_MS) ? BEYBLADE_TICK_MS : 50;
 const SAFE_COMMAND_RATE_MS = Number.isFinite(BEYBLADE_COMMAND_RATE_MS) ? BEYBLADE_COMMAND_RATE_MS : 350;
+const SAFE_INGEST_COMMAND_RATE_MS = Number.isFinite(BEYBLADE_INGEST_COMMAND_RATE_MS) ? BEYBLADE_INGEST_COMMAND_RATE_MS : 200;
+const SAFE_INGEST_IMPULSE_MULT = Number.isFinite(BEYBLADE_INGEST_IMPULSE_MULT) ? BEYBLADE_INGEST_IMPULSE_MULT : 1.3;
 const SAFE_COIN_TO_USD = Number.isFinite(BEYBLADE_COIN_TO_USD) ? BEYBLADE_COIN_TO_USD : 0.005;
 const SAFE_ROUND_COUNTDOWN_MS = Number.isFinite(BEYBLADE_ROUND_COUNTDOWN_MS) ? BEYBLADE_ROUND_COUNTDOWN_MS : 5000;
 const SAFE_ROUND_SHRINK_START_MS = Number.isFinite(BEYBLADE_ROUND_SHRINK_START_MS) ? BEYBLADE_ROUND_SHRINK_START_MS : 120000;
@@ -288,6 +292,7 @@ function getOrCreateViewer(viewerId, viewerName) {
       coins: 0,
       gifts: 0,
       lastCommandAt: 0,
+      lastIngestCommandAt: 0,
       lastShotCommandAt: 0,
       lastSeen: Date.now()
     };
@@ -380,10 +385,10 @@ function spawnBlade(viewer, { allowDuringRound = false } = {}) {
   return blade;
 }
 
-function allowViewerCommand(viewer) {
-  const now = Date.now();
-  if (now - viewer.lastCommandAt < SAFE_COMMAND_RATE_MS) return false;
-  viewer.lastCommandAt = now;
+function allowViewerCommand(viewer, rateMs = SAFE_COMMAND_RATE_MS, key = "lastCommandAt", now = Date.now()) {
+  const lastAt = viewer[key] || 0;
+  if (now - lastAt < rateMs) return false;
+  viewer[key] = now;
   return true;
 }
 
@@ -736,9 +741,13 @@ function applyCommand(viewer, command, source) {
     const lastShot = viewer.lastShotCommandAt || 0;
     if (now - lastShot < SAFE_SHOT_COOLDOWN_MS) return;
     viewer.lastShotCommandAt = now;
-  } else if (command.type !== "spawn" && !allowViewerCommand(viewer)) {
-    return;
+  } else if (command.type !== "spawn") {
+    const isWeb = source === "web";
+    const rateMs = isWeb ? SAFE_COMMAND_RATE_MS : SAFE_INGEST_COMMAND_RATE_MS;
+    const key = isWeb ? "lastCommandAt" : "lastIngestCommandAt";
+    if (!allowViewerCommand(viewer, rateMs, key, now)) return;
   }
+  const impulseMult = source === "web" ? 1 : clamp(SAFE_INGEST_IMPULSE_MULT, 1, 2.5);
 
   if (command.type === "class") {
     const classKey = normalizeClassKey(command.value);
@@ -782,8 +791,15 @@ function applyCommand(viewer, command, source) {
         : (Math.abs(blade.vx) > 0.001 || Math.abs(blade.vy) > 0.001)
           ? Math.atan2(blade.vy, blade.vx)
           : Math.random() * Math.PI * 2;
-      const force = 0.018 * magnitude * scale;
-      applyImpulse(blade, Math.cos(angle) * force, Math.sin(angle) * force, 0.3 * magnitude * scale, 0.15 * magnitude * scale, now);
+      const force = 0.018 * magnitude * scale * impulseMult;
+      applyImpulse(
+        blade,
+        Math.cos(angle) * force,
+        Math.sin(angle) * force,
+        0.3 * magnitude * scale,
+        0.15 * magnitude * scale,
+        now
+      );
       pushArenaEvent("boost", `${viewer.name} boosted.`);
       break;
     }
@@ -795,13 +811,13 @@ function applyCommand(viewer, command, source) {
       pushArenaEvent("spin", `${viewer.name} added spin.`);
       break;
     case "nudge": {
-      const nudge = 0.016;
+      const nudge = 0.016 * impulseMult;
       applyImpulse(blade, (command.dx || 0) * nudge, (command.dy || 0) * nudge, 0.05, 0.02, now);
       break;
     }
     case "turn": {
       if (command.angle == null || !Number.isFinite(command.angle)) return;
-      const nudge = 0.016;
+      const nudge = 0.016 * impulseMult;
       const angle = (command.angle * Math.PI) / 180;
       applyImpulse(blade, Math.cos(angle) * nudge, Math.sin(angle) * nudge, 0.05, 0.02, now);
       break;
@@ -812,7 +828,7 @@ function applyCommand(viewer, command, source) {
       const scale = staminaUse.scale;
       addMomentum(blade, SAFE_MOMENTUM_DASH_GAIN * scale);
       const angle = ((command.angle || 0) * Math.PI) / 180;
-      const force = 0.02 * scale;
+      const force = 0.02 * scale * impulseMult;
       applyImpulse(blade, Math.cos(angle) * force, Math.sin(angle) * force, 0.1 * scale, 0.05 * scale, now);
       pushArenaEvent("aim", `${viewer.name} dashed at ${Math.round(command.angle)}°.`);
       break;
